@@ -1,0 +1,2983 @@
+<!DOCTYPE html>
+<html lang="fr" class="antialiased">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NojiFlow — Flashcards & Répétition Espacée</title>
+
+  <!-- Polices Google Fonts : Inter pour l'interface, JetBrains Mono pour le code inline -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Configuration Tailwind personnalisée pour les palettes Clair (Beige/Blanc) et Sombre (Noir/Violet) -->
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+            mono: ['JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'monospace'],
+          },
+          colors: {
+            light: {
+              bg: '#FAF8F5',
+              card: '#FFFFFF',
+              subtle: '#F3EFEA',
+              border: '#E6E0D8',
+              text: '#1C1B18',
+              muted: '#6E6960',
+              accent: '#262420',
+              accentHover: '#3D3A34',
+            },
+            dark: {
+              bg: '#0E0E12',
+              card: '#17171E',
+              subtle: '#1F1F29',
+              border: '#2A2A36',
+              text: '#F3F3F7',
+              muted: '#9494A8',
+              accent: '#8B5CF6',
+              accentHover: '#7C3AED',
+              accentSoft: '#A78BFA',
+            }
+          },
+          boxShadow: {
+            'soft': '0 2px 10px -2px rgba(28, 27, 24, 0.05), 0 1px 3px -1px rgba(28, 27, 24, 0.03)',
+            'card': '0 10px 30px -10px rgba(28, 27, 24, 0.08), 0 2px 8px -2px rgba(28, 27, 24, 0.04)',
+            'card-dark': '0 14px 36px -10px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(139, 92, 246, 0.08)',
+          }
+        }
+      }
+    };
+  </script>
+
+  <!-- Styles dédiés aux animations 3D de retournement de carte et transitions fluides -->
+  <style>
+    /* Retournement de carte 3D adaptatif (sans hauteur fixe grâce à CSS Grid) */
+    .perspective-1200 {
+      perspective: 1200px;
+    }
+    .flip-card-inner {
+      display: grid;
+      grid-template-columns: 1fr;
+      grid-template-rows: 1fr;
+      transform-style: preserve-3d;
+      transition: transform 0.52s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .flip-card-inner.is-flipped {
+      transform: rotateY(180deg);
+    }
+    .flip-card-face {
+      grid-column: 1 / 1;
+      grid-row: 1 / 1;
+      backface-visibility: hidden;
+      -webkit-backface-visibility: hidden;
+    }
+    .flip-card-back {
+      transform: rotateY(180deg);
+    }
+
+    /* Animations douces d'apparition */
+    @keyframes fadeSlideUp {
+      from {
+        opacity: 0;
+        transform: translateY(10px) scale(0.99);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+    .animate-fade-slide {
+      animation: fadeSlideUp 0.28s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    }
+
+    @keyframes toastIn {
+      from {
+        opacity: 0;
+        transform: translateY(14px) scale(0.96);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+    .animate-toast {
+      animation: toastIn 0.25s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    }
+
+    /* Personnalisation discrète de la barre de défilement */
+    ::-webkit-scrollbar {
+      width: 7px;
+      height: 7px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(130, 125, 118, 0.28);
+      border-radius: 9999px;
+    }
+    .dark ::-webkit-scrollbar-thumb {
+      background: rgba(139, 92, 246, 0.28);
+    }
+  </style>
+
+  <!-- Initialisation immédiate du thème avant le rendu pour éviter tout flash visuel -->
+  <script>
+    (function () {
+      try {
+        const savedTheme = localStorage.getItem('nojiflow_theme');
+        if (savedTheme === 'dark') {
+          document.documentElement.classList.add('dark');
+        }
+      } catch (e) {
+        console.warn('Impossible de lire le thème depuis localStorage', e);
+      }
+    })();
+  </script>
+</head>
+
+<body class="min-h-screen bg-light-bg text-light-text dark:bg-dark-bg dark:text-dark-text transition-colors duration-300 selection:bg-amber-200/70 dark:selection:bg-violet-500/35">
+  <!-- ===================================================================== -->
+  <!-- EN-TÊTE PRINCIPAL (NAVIGATION, STREAK, COMPTEUR DU JOUR & THÈME)      -->
+  <!-- ===================================================================== -->
+  <header class="sticky top-0 z-30 border-b border-light-border/90 dark:border-dark-border/90 bg-light-bg/85 dark:bg-dark-bg/85 backdrop-blur-md transition-colors duration-300">
+    <div class="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
+      <!-- Logo et retour accueil -->
+      <button
+        id="brand-home-btn"
+        type="button"
+        class="flex items-center gap-2.5 group focus:outline-none rounded-xl py-1 pr-2"
+        title="Retour au tableau de bord"
+      >
+        <div class="w-9 h-9 rounded-xl bg-light-accent dark:bg-dark-accent text-white flex items-center justify-center shadow-soft transition-transform duration-200 group-hover:scale-105">
+          <!-- Icône cartes empilées minimaliste -->
+          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="4" y="5" width="13" height="15" rx="2.5"></rect>
+            <path d="M9 3h9a2 2 0 0 1 2 2v12"></path>
+            <path d="M8 10h5"></path>
+            <path d="M8 14h3"></path>
+          </svg>
+        </div>
+        <div class="text-left">
+          <span class="font-bold text-base sm:text-lg tracking-tight block leading-none">NojiFlow</span>
+          <span class="text-[11px] text-light-muted dark:text-dark-muted hidden sm:block mt-0.5">Répétition espacée</span>
+        </div>
+      </button>
+
+      <!-- Indicateurs de progression quotidienne + actions globales -->
+      <div class="flex items-center gap-2 sm:gap-3">
+        <!-- Compteur révisées aujourd'hui -->
+        <div
+          class="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-light-card dark:bg-dark-card border border-light-border dark:border-dark-border shadow-soft text-xs sm:text-sm"
+          title="Cartes révisées aujourd'hui"
+        >
+          <svg class="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+            <polyline points="22 4 12 14.01 9 11.01"></polyline>
+          </svg>
+          <span id="header-reviewed-today" class="font-semibold tabular-nums">0</span>
+          <span class="text-light-muted dark:text-dark-muted hidden md:inline">aujourd'hui</span>
+        </div>
+
+        <!-- Série de jours (Streak) -->
+        <div
+          class="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-light-card dark:bg-dark-card border border-light-border dark:border-dark-border shadow-soft text-xs sm:text-sm"
+          title="Série de jours consécutifs"
+        >
+          <svg class="w-4 h-4 text-orange-500 dark:text-amber-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"></path>
+          </svg>
+          <span id="header-streak" class="font-semibold tabular-nums">0</span>
+          <span class="text-light-muted dark:text-dark-muted hidden md:inline">j</span>
+        </div>
+
+        <!-- Bouton Import CSV rapide -->
+        <button
+          id="header-import-btn"
+          type="button"
+          class="hidden sm:inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-light-card dark:bg-dark-card border border-light-border dark:border-dark-border hover:bg-light-subtle dark:hover:bg-dark-subtle text-xs sm:text-sm font-medium transition-colors"
+          title="Importer des cartes depuis un fichier CSV"
+        >
+          <svg class="w-4 h-4 text-light-muted dark:text-dark-accentSoft" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="17 8 12 3 7 8"></polyline>
+            <line x1="12" y1="3" x2="12" y2="15"></line>
+          </svg>
+          <span>Importer CSV</span>
+        </button>
+
+        <!-- Bascule Clair / Sombre -->
+        <button
+          id="theme-toggle-btn"
+          type="button"
+          class="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-light-card dark:bg-dark-card border border-light-border dark:border-dark-border hover:bg-light-subtle dark:hover:bg-dark-subtle flex items-center justify-center transition-colors shadow-soft"
+          aria-label="Changer de thème"
+          title="Basculer le mode Clair / Sombre"
+        >
+          <!-- Icône Lune (visible en mode clair) -->
+          <svg class="w-4 h-4 sm:w-5 sm:h-5 text-light-text block dark:hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+          </svg>
+          <!-- Icône Soleil (visible en mode sombre) -->
+          <svg class="w-4 h-4 sm:w-5 sm:h-5 text-dark-accentSoft hidden dark:block" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="5"></circle>
+            <line x1="12" y1="1" x2="12" y2="3"></line>
+            <line x1="12" y1="21" x2="12" y2="23"></line>
+            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+            <line x1="1" y1="12" x2="3" y2="12"></line>
+            <line x1="21" y1="12" x2="23" y2="12"></line>
+            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ===================================================================== -->
+  <!-- CONTENEUR PRINCIPAL DES VUES (TABLEAU DE BORD / GESTION / RÉVISION)   -->
+  <!-- ===================================================================== -->
+  <main id="app-main" class="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-10 min-h-[calc(100vh-4rem)]">
+    <!-- Rendu dynamique par JavaScript -->
+  </main>
+
+  <!-- ===================================================================== -->
+  <!-- CONTENEUR DE MODALES                                                  -->
+  <!-- ===================================================================== -->
+  <div
+    id="modal-backdrop"
+    class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-black/45 dark:bg-black/70 backdrop-blur-xs overflow-y-auto"
+    role="dialog"
+    aria-modal="true"
+  >
+    <div
+      id="modal-container"
+      class="w-full max-w-xl bg-light-card dark:bg-dark-card border border-light-border dark:border-dark-border rounded-2xl shadow-2xl overflow-hidden animate-fade-slide my-auto"
+    >
+      <!-- Contenu injecté dynamiquement -->
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- CONTENEUR DE NOTIFICATIONS TOAST                                      -->
+  <!-- ===================================================================== -->
+  <div
+    id="toast-container"
+    class="fixed bottom-4 right-4 left-4 sm:left-auto z-50 flex flex-col gap-2 items-center sm:items-end pointer-events-none"
+    aria-live="polite"
+  ></div>
+
+  <!-- ===================================================================== -->
+  <!-- LOGIQUE APPLICATIVE COMPLÈTE (SRS SM-2, CSV RFC 4180, UI & STOCKAGE)  -->
+  <!-- ===================================================================== -->
+  <script>
+    (function () {
+      'use strict';
+
+      /* ===================================================================
+         1. CONSTANTES ET ÉTAT GLOBAL
+      =================================================================== */
+      const STORAGE_KEY = 'nojiflow_srs_data_v1';
+      const THEME_KEY = 'nojiflow_theme';
+      const MIN_MS = 60 * 1000;
+      const HOUR_MS = 60 * MIN_MS;
+      const DAY_MS = 24 * HOUR_MS;
+
+      /** État global de l'application */
+      const appState = {
+        data: null, // { decks: [], stats: { reviewedToday, lastReviewDate, streak } }
+        view: 'dashboard', // 'dashboard' | 'manage' | 'study'
+        activeDeckId: null,
+        manageSearch: '',
+        manageFilter: 'all', // 'all' | 'new' | 'learning' | 'due' | 'mastered'
+        study: null, // Objet de session active
+        waitingTimerId: null, // Intervalle pour le décompte en attente
+        csvImportState: null, // État temporaire de la modale d'import CSV
+      };
+
+      /* ===================================================================
+         2. UTILITAIRES GÉNÉRAUX (DATES, TEXTE, FORMATAGE)
+      =================================================================== */
+
+      /** Génère un identifiant unique lisible */
+      function generateId(prefix = 'id') {
+        return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+      }
+
+      /** Retourne la date locale au format YYYY-MM-DD */
+      function getLocalDateKey(date = new Date()) {
+        const y = date.getFullYear();
+        const m = String(date.getMonth() + 1).padStart(2, '0');
+        const d = String(date.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+      }
+
+      /** Retourne le timestamp du début de journée locale (00:00:00) */
+      function getStartOfLocalDay(timestamp = Date.now()) {
+        const d = new Date(timestamp);
+        d.setHours(0, 0, 0, 0);
+        return d.getTime();
+      }
+
+      /** Retourne le timestamp de fin de journée locale (23:59:59.999) */
+      function getEndOfLocalDay(timestamp = Date.now()) {
+        const d = new Date(timestamp);
+        d.setHours(23, 59, 59, 999);
+        return d.getTime();
+      }
+
+      /** Échappe le HTML pour prévenir toute injection XSS */
+      function escapeHtml(str) {
+        if (str === null || str === undefined) return '';
+        return String(str)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+      }
+
+      /**
+       * Formate le contenu d'une flashcard :
+       * - Échappe le HTML
+       * - Met en forme le code inline entre backticks (`code`)
+       * - Conserve les retours à la ligne
+       */
+      function renderCardContent(text) {
+        const escaped = escapeHtml(text || '');
+        const withInlineCode = escaped.replace(
+          /`([^`\n]+)`/g,
+          '<code class="px-1.5 py-0.5 mx-0.5 rounded-md font-mono text-[0.88em] bg-light-subtle dark:bg-dark-subtle border border-light-border dark:border-dark-border text-rose-700 dark:text-dark-accentSoft">$1</code>'
+        );
+        return withInlineCode.replace(/\r?\n/g, '<br>');
+      }
+
+      /** Formate une durée (en ms) en libellé court lisible en français */
+      function formatDurationMs(ms) {
+        if (ms < MIN_MS) return '< 1 min';
+        if (ms < HOUR_MS) {
+          const mins = Math.max(1, Math.round(ms / MIN_MS));
+          return `${mins} min`;
+        }
+        if (ms < DAY_MS) {
+          const hrs = Math.max(1, Math.round(ms / HOUR_MS));
+          return `${hrs} h`;
+        }
+        const days = Math.max(1, Math.round(ms / DAY_MS));
+        if (days < 30) return `${days} j`;
+        if (days < 365) {
+          const months = (days / 30).toFixed(1).replace(/\.0$/, '');
+          return `${months} mois`;
+        }
+        const years = (days / 365).toFixed(1).replace(/\.0$/, '');
+        return `${years} an${Number(years) >= 2 ? 's' : ''}`;
+      }
+
+      /** Formate un intervalle en jours pour les boutons SRS */
+      function formatDaysLabel(days) {
+        if (days < 1) {
+          return formatDurationMs(days * DAY_MS);
+        }
+        const rounded = Math.round(days);
+        if (rounded < 30) return `${rounded} j`;
+        if (rounded < 365) {
+          const months = (rounded / 30).toFixed(1).replace(/\.0$/, '');
+          return `${months} mois`;
+        }
+        const years = (rounded / 365).toFixed(1).replace(/\.0$/, '');
+        return `${years} an${Number(years) >= 2 ? 's' : ''}`;
+      }
+
+      /** Formate la prochaine date de révision d'une carte pour la vue "Gérer les cartes" */
+      function formatNextDueBadge(card, now = Date.now()) {
+        if (card.status === 'new') {
+          return { text: 'Nouvelle', tone: 'blue' };
+        }
+        const diff = card.due - now;
+        if (diff <= 0) {
+          if (card.status === 'learning' || card.status === 'relearning') {
+            return { text: 'À revoir maintenant', tone: 'orange' };
+          }
+          return { text: 'Due aujourd’hui', tone: 'green' };
+        }
+        if (diff < HOUR_MS) {
+          return { text: `Dans ${formatDurationMs(diff)}`, tone: 'orange' };
+        }
+        if (card.due <= getEndOfLocalDay(now)) {
+          return { text: `Aujourd’hui (${formatDurationMs(diff)})`, tone: 'orange' };
+        }
+        const d = new Date(card.due);
+        const dateStr = d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+        const intervalStr = card.interval >= 1 ? ` · int. ${formatDaysLabel(card.interval)}` : '';
+        return { text: `${dateStr}${intervalStr}`, tone: 'neutral' };
+      }
+
+      /* ===================================================================
+         3. PERSISTANCE LOCALSTORAGE & PAQUET DE DÉMONSTRATION
+      =================================================================== */
+
+      /** Crée une nouvelle flashcard avec état SRS initialisé */
+      function createCardObject(front, back) {
+        return {
+          id: generateId('card'),
+          front: String(front || '').trim(),
+          back: String(back || '').trim(),
+          createdAt: Date.now(),
+          status: 'new', // 'new' | 'learning' | 'review' | 'relearning'
+          step: 0,
+          interval: 0, // en jours
+          ease: 2.5,
+          reps: 0,
+          lapses: 0,
+          due: 0,
+        };
+      }
+
+      /** Crée les données initiales incluant le paquet de démonstration */
+      function createDefaultData() {
+        const demoDeck = {
+          id: 'deck_demo_srs',
+          name: 'Découvrir la répétition espacée',
+          createdAt: Date.now(),
+          cards: [
+            createCardObject(
+              'Comment fonctionne la répétition espacée sur NojiFlow ?',
+              'Chaque carte revient juste avant que vous ne l’oubliez.\n\nPlus vous répondez facilement, plus l’intervalle avant la prochaine révision s’allonge automatiquement (`10 min` → `1 j` → `3 j` → plusieurs semaines).'
+            ),
+            createCardObject(
+              'À quoi servent les 4 boutons d’évaluation sous une carte ?',
+              '• `À revoir` (Rouge) : la carte revient très vite (`1 min`) dans cette session.\n• `Difficile` (Orange) : délai court (`10 min` ou intervalle réduit × 1,2).\n• `Bien` (Vert) : progression optimale (`10 min` → `1 j` → `3 j`…).\n• `Facile` (Bleu/Violet) : repousse directement à plusieurs jours (`4 j`+).'
+            ),
+            createCardObject(
+              'Quels raccourcis clavier permettent de réviser ultra-rapidement ?',
+              '• `Espace` : afficher la réponse (retourner la carte)\n• `1` : À revoir\n• `2` : Difficile\n• `3` : Bien\n• `4` : Facile\n\nVous pouvez aussi cliquer directement sur la carte pour la retourner.'
+            ),
+            createCardObject(
+              'Puis-je importer mes listes depuis Excel, Noji ou Anki ?',
+              'Oui ! Cliquez sur `Importer CSV` en haut de l’écran.\n\nGlissez un fichier `.csv` / `.txt` ou collez directement vos données (séparateur `,`, `;` ou tabulation) avec aperçu instantané. Vous pouvez aussi exporter chaque paquet en CSV UTF-8.'
+            ),
+          ],
+        };
+
+        return {
+          decks: [demoDeck],
+          stats: {
+            reviewedToday: 0,
+            lastReviewDate: null,
+            streak: 0,
+          },
+        };
+      }
+
+      /** Charge les données depuis localStorage et met à jour les compteurs du jour */
+      function loadData() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (!raw) {
+            const def = createDefaultData();
+            saveData(def);
+            return def;
+          }
+          const parsed = JSON.parse(raw);
+          if (!parsed || !Array.isArray(parsed.decks)) {
+            throw new Error('Format de données invalide');
+          }
+          if (!parsed.stats) {
+            parsed.stats = { reviewedToday: 0, lastReviewDate: null, streak: 0 };
+          }
+          normalizeDailyStats(parsed.stats);
+          return parsed;
+        } catch (err) {
+          console.error('Erreur lors du chargement des données :', err);
+          const fallback = createDefaultData();
+          saveData(fallback);
+          return fallback;
+        }
+      }
+
+      /** Vérifie le changement de jour pour réinitialiser reviewedToday et vérifier le streak */
+      function normalizeDailyStats(stats) {
+        const today = getLocalDateKey();
+        if (!stats.lastReviewDate) {
+          stats.reviewedToday = 0;
+          stats.streak = 0;
+          return;
+        }
+        if (stats.lastReviewDate === today) {
+          return;
+        }
+        // Calcul de l'écart en jours entre lastReviewDate et aujourd'hui
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        const yesterdayKey = getLocalDateKey(yesterday);
+
+        stats.reviewedToday = 0;
+        if (stats.lastReviewDate !== yesterdayKey) {
+          // Série interrompue si aucune révision hier
+          stats.streak = 0;
+        }
+      }
+
+      /** Enregistre une révision effectuée dans les statistiques quotidiennes */
+      function recordReviewInStats() {
+        const stats = appState.data.stats;
+        const today = getLocalDateKey();
+        normalizeDailyStats(stats);
+
+        if (stats.lastReviewDate !== today) {
+          const yesterday = new Date();
+          yesterday.setDate(yesterday.getDate() - 1);
+          const yesterdayKey = getLocalDateKey(yesterday);
+
+          if (stats.lastReviewDate === yesterdayKey) {
+            stats.streak = (stats.streak || 0) + 1;
+          } else {
+            stats.streak = 1;
+          }
+          stats.lastReviewDate = today;
+          stats.reviewedToday = 1;
+        } else {
+          stats.reviewedToday = (stats.reviewedToday || 0) + 1;
+        }
+        saveData();
+        updateHeaderStats();
+      }
+
+      /** Sauvegarde les données dans localStorage */
+      function saveData(dataObj = appState.data) {
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(dataObj));
+        } catch (err) {
+          console.error('Erreur de sauvegarde localStorage :', err);
+          showToast('Impossible de sauvegarder (stockage local plein).', 'error');
+        }
+      }
+
+      /* ===================================================================
+         4. ALGORITHME DE RÉPÉTITION ESPACÉE (SRS TYPE NOJI / SM-2)
+      =================================================================== */
+
+      /**
+       * Calcule le nouvel état SRS d'une carte selon l'évaluation choisie :
+       * - 'again' (1) : À revoir (1 min, réinitialise l'étape)
+       * - 'hard'  (2) : Difficile (10 min pour nouvelle carte, ×1.2 en révision)
+       * - 'good'  (3) : Bien (10 min -> 1 j -> 3 j -> intervalle × ease)
+       * - 'easy'  (4) : Facile (4 j immédiatement pour nouvelle, sinon intervalle × ease × 1.3)
+       */
+      function simulateSRS(card, rating, now = Date.now()) {
+        const startToday = getStartOfLocalDay(now);
+        const currentEase = card.ease || 2.5;
+        const status = card.status || 'new';
+        const step = card.step || 0;
+        const reps = card.reps || 0;
+        const lapses = card.lapses || 0;
+        const interval = card.interval || 0;
+
+        // 1. CARTE NOUVELLE
+        if (status === 'new') {
+          if (rating === 'again') {
+            return {
+              status: 'learning',
+              step: 0,
+              interval: 0,
+              ease: currentEase,
+              reps: 0,
+              lapses,
+              due: now + 1 * MIN_MS,
+              label: '1 min',
+            };
+          }
+          if (rating === 'hard') {
+            return {
+              status: 'learning',
+              step: 0,
+              interval: 0,
+              ease: Math.max(1.3, currentEase - 0.1),
+              reps: 0,
+              lapses,
+              due: now + 10 * MIN_MS,
+              label: '10 min',
+            };
+          }
+          if (rating === 'good') {
+            return {
+              status: 'learning',
+              step: 1,
+              interval: 0,
+              ease: currentEase,
+              reps: 0,
+              lapses,
+              due: now + 10 * MIN_MS,
+              label: '10 min',
+            };
+          }
+          // easy
+          return {
+            status: 'review',
+            step: 0,
+            interval: 4,
+            ease: currentEase + 0.15,
+            reps: 1,
+            lapses,
+            due: startToday + 4 * DAY_MS,
+            label: '4 j',
+          };
+        }
+
+        // 2. CARTE EN COURS D'APPRENTISSAGE OU DE RÉAPPRENTISSAGE
+        if (status === 'learning' || status === 'relearning') {
+          if (rating === 'again') {
+            return {
+              status,
+              step: 0,
+              interval: status === 'relearning' ? Math.max(1, interval) : 0,
+              ease: currentEase,
+              reps,
+              lapses,
+              due: now + 1 * MIN_MS,
+              label: '1 min',
+            };
+          }
+          if (rating === 'hard') {
+            // Étape 0 : 6 min (intermédiaire entre 1 min et 10 min) ; Étape 1 : 10 min (répète l'étape)
+            const delayMins = step === 0 ? 6 : 10;
+            return {
+              status,
+              step,
+              interval,
+              ease: currentEase,
+              reps,
+              lapses,
+              due: now + delayMins * MIN_MS,
+              label: `${delayMins} min`,
+            };
+          }
+          if (rating === 'good') {
+            if (step === 0) {
+              // Passe à l'étape 10 min avant graduation à 1 jour
+              return {
+                status,
+                step: 1,
+                interval,
+                ease: currentEase,
+                reps,
+                lapses,
+                due: now + 10 * MIN_MS,
+                label: '10 min',
+              };
+            }
+            // Graduation en mode Révision (1 jour)
+            const gradInterval = status === 'relearning' ? Math.max(1, Math.round(interval * 0.5)) : 1;
+            return {
+              status: 'review',
+              step: 0,
+              interval: gradInterval,
+              ease: currentEase,
+              reps: Math.max(1, reps),
+              lapses,
+              due: startToday + gradInterval * DAY_MS,
+              label: formatDaysLabel(gradInterval),
+            };
+          }
+          // easy : graduation directe à 4 jours (ou +2 j sur l'intervalle de réapprentissage)
+          const easyInterval = status === 'relearning' ? Math.max(2, Math.round(interval * 0.75) + 1) : 4;
+          return {
+            status: 'review',
+            step: 0,
+            interval: easyInterval,
+            ease: currentEase + 0.15,
+            reps: Math.max(1, reps),
+            lapses,
+            due: startToday + easyInterval * DAY_MS,
+            label: formatDaysLabel(easyInterval),
+          };
+        }
+
+        // 3. CARTE EN RÉVISION (SM-2)
+        const baseInterval = Math.max(1, interval);
+
+        if (rating === 'again') {
+          return {
+            status: 'relearning',
+            step: 0,
+            interval: Math.max(1, Math.round(baseInterval * 0.5)),
+            ease: Math.max(1.3, Number((currentEase - 0.2).toFixed(2))),
+            reps: 0,
+            lapses: lapses + 1,
+            due: now + 1 * MIN_MS,
+            label: '1 min',
+          };
+        }
+
+        if (rating === 'hard') {
+          // Intervalle réduit × 1,2 (ou 12 h si l'intervalle était de 1 jour pour rester distinct de "Bien")
+          if (baseInterval === 1) {
+            return {
+              status: 'review',
+              step: 0,
+              interval: 1,
+              ease: Math.max(1.3, Number((currentEase - 0.15).toFixed(2))),
+              reps: reps + 1,
+              lapses,
+              due: now + 12 * HOUR_MS,
+              label: '12 h',
+            };
+          }
+          const hardDays = Math.max(baseInterval + 1, Math.round(baseInterval * 1.2));
+          return {
+            status: 'review',
+            step: 0,
+            interval: hardDays,
+            ease: Math.max(1.3, Number((currentEase - 0.15).toFixed(2))),
+            reps: reps + 1,
+            lapses,
+            due: startToday + hardDays * DAY_MS,
+            label: formatDaysLabel(hardDays),
+          };
+        }
+
+        // Calcul de l'intervalle "Bien" (1 j -> 3 j -> intervalle × ease)
+        const goodDays =
+          baseInterval === 1 && reps <= 1
+            ? 3
+            : Math.max(baseInterval + 1, Math.round(baseInterval * currentEase));
+
+        if (rating === 'good') {
+          return {
+            status: 'review',
+            step: 0,
+            interval: goodDays,
+            ease: currentEase,
+            reps: reps + 1,
+            lapses,
+            due: startToday + goodDays * DAY_MS,
+            label: formatDaysLabel(goodDays),
+          };
+        }
+
+        // easy : intervalle × facteur de facilité × 1,3
+        const newEase = Number((currentEase + 0.15).toFixed(2));
+        const easyDays = Math.max(goodDays + 1, Math.round(baseInterval * currentEase * 1.3));
+        return {
+          status: 'review',
+          step: 0,
+          interval: easyDays,
+          ease: newEase,
+          reps: reps + 1,
+          lapses,
+          due: startToday + easyDays * DAY_MS,
+          label: formatDaysLabel(easyDays),
+        };
+      }
+
+      /** Calcule les compteurs d'un paquet (Nouvelles, En cours, À réviser, Total) */
+      function getDeckCounts(deck, now = Date.now()) {
+        const endToday = getEndOfLocalDay(now);
+        let newCount = 0;
+        let learningCount = 0;
+        let reviewDueCount = 0;
+
+        for (const card of deck.cards) {
+          if (card.status === 'new') {
+            newCount++;
+          } else if (card.status === 'learning' || card.status === 'relearning') {
+            learningCount++;
+          } else if (card.status === 'review' && card.due <= endToday) {
+            reviewDueCount++;
+          }
+        }
+
+        return {
+          newCount,
+          learningCount,
+          reviewDueCount,
+          totalDue: newCount + learningCount + reviewDueCount,
+          total: deck.cards.length,
+        };
+      }
+
+      /* ===================================================================
+         5. PARSEUR & EXPORTATEUR CSV ROBUSTE (RFC 4180)
+      =================================================================== */
+
+      /**
+       * Détecte automatiquement le séparateur le plus probable (`,`, `;`, ou `\t`)
+       * en ignorant les séparateurs situés entre guillemets.
+       */
+      function detectCsvDelimiter(text) {
+        const sample = (text || '').slice(0, 4000);
+        const candidates = [';', ',', '\t'];
+        const scores = { ';': 0, ',': 0, '\t': 0 };
+
+        let inQuotes = false;
+        const linesCount = { ';': 0, ',': 0, '\t': 0 };
+        const seenInLine = { ';': false, ',': false, '\t': false };
+
+        for (let i = 0; i < sample.length; i++) {
+          const ch = sample[i];
+          if (ch === '"') {
+            if (inQuotes && sample[i + 1] === '"') {
+              i++;
+            } else {
+              inQuotes = !inQuotes;
+            }
+          } else if (!inQuotes) {
+            if (ch === '\n' || ch === '\r') {
+              for (const c of candidates) {
+                if (seenInLine[c]) linesCount[c]++;
+                seenInLine[c] = false;
+              }
+            } else if (scores[ch] !== undefined) {
+              scores[ch]++;
+              seenInLine[ch] = true;
+            }
+          }
+        }
+        for (const c of candidates) {
+          if (seenInLine[c]) linesCount[c]++;
+        }
+
+        // Priorité au séparateur présent sur le plus grand nombre de lignes, puis au total
+        let best = ',';
+        let bestRank = -1;
+        for (const c of candidates) {
+          const rank = linesCount[c] * 1000 + scores[c];
+          if (rank > bestRank && scores[c] > 0) {
+            bestRank = rank;
+            best = c;
+          }
+        }
+        return best;
+      }
+
+      /**
+       * Parseur CSV conforme RFC 4180 :
+       * Gère les guillemets, les guillemets échappés (""), les séparateurs
+       * à l'intérieur des cellules et les sauts de ligne multi-lignes.
+       */
+      function parseRFC4180CSV(rawText, delimiter) {
+        if (!rawText) return [];
+        // Supprime un éventuel BOM UTF-8 en début de fichier
+        const text = rawText.charCodeAt(0) === 0xfeff ? rawText.slice(1) : rawText;
+
+        const rows = [];
+        let row = [];
+        let field = '';
+        let inQuotes = false;
+
+        for (let i = 0; i < text.length; i++) {
+          const ch = text[i];
+
+          if (inQuotes) {
+            if (ch === '"') {
+              if (text[i + 1] === '"') {
+                field += '"';
+                i++; // Guillemet échappé
+              } else {
+                inQuotes = false;
+              }
+            } else {
+              field += ch;
+            }
+          } else {
+            if (ch === '"' && field.length === 0) {
+              inQuotes = true;
+            } else if (ch === delimiter) {
+              row.push(field);
+              field = '';
+            } else if (ch === '\r') {
+              if (text[i + 1] === '\n') i++;
+              row.push(field);
+              rows.push(row);
+              row = [];
+              field = '';
+            } else if (ch === '\n') {
+              row.push(field);
+              rows.push(row);
+              row = [];
+              field = '';
+            } else {
+              field += ch;
+            }
+          }
+        }
+
+        // Dernière cellule / ligne
+        if (field.length > 0 || row.length > 0) {
+          row.push(field);
+          rows.push(row);
+        }
+
+        // Filtre les lignes entièrement vides
+        return rows.filter((r) => r.some((cell) => cell.trim() !== ''));
+      }
+
+      /** Échappe une cellule selon RFC 4180 pour l'export CSV */
+      function escapeCsvCell(value) {
+        const str = String(value ?? '');
+        if (/[",\r\n;]/.test(str)) {
+          return `"${str.replace(/"/g, '""')}"`;
+        }
+        return str;
+      }
+
+      /** Exporte un paquet au format CSV UTF-8 avec BOM (compatible Excel, Noji, Anki) */
+      function exportDeckToCSV(deckId) {
+        const deck = getDeckById(deckId);
+        if (!deck) return;
+        if (deck.cards.length === 0) {
+          showToast('Ce paquet ne contient aucune carte à exporter.', 'info');
+          return;
+        }
+
+        const header = 'Recto,Verso';
+        const lines = deck.cards.map(
+          (c) => `${escapeCsvCell(c.front)},${escapeCsvCell(c.back)}`
+        );
+        const csvContent = '\uFEFF' + [header, ...lines].join('\r\n');
+
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        const safeFilename = deck.name
+          .toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-|-$/g, '') || 'paquet-flashcards';
+
+        link.href = url;
+        link.download = `${safeFilename}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+
+        showToast(`Paquet « ${deck.name} » exporté (${deck.cards.length} cartes).`, 'success');
+      }
+
+      /* ===================================================================
+         6. SYSTÈME DE NOTIFICATIONS TOAST & MODALES
+      =================================================================== */
+
+      /** Affiche une notification toast discrète et animée */
+      function showToast(message, type = 'info') {
+        const container = document.getElementById('toast-container');
+        if (!container) return;
+
+        const styles = {
+          success: 'border-emerald-200 dark:border-emerald-500/30 bg-white dark:bg-dark-card text-light-text dark:text-dark-text',
+          error: 'border-rose-200 dark:border-rose-500/30 bg-white dark:bg-dark-card text-light-text dark:text-dark-text',
+          info: 'border-light-border dark:border-dark-border bg-white dark:bg-dark-card text-light-text dark:text-dark-text',
+        };
+        const icons = {
+          success: '<span class="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0"></span>',
+          error: '<span class="w-2.5 h-2.5 rounded-full bg-rose-500 shrink-0"></span>',
+          info: '<span class="w-2.5 h-2.5 rounded-full bg-blue-500 dark:bg-dark-accentSoft shrink-0"></span>',
+        };
+
+        const toast = document.createElement('div');
+        toast.className = `pointer-events-auto animate-toast flex items-center gap-2.5 px-4 py-3 rounded-xl border shadow-lg text-sm font-medium max-w-sm ${styles[type] || styles.info}`;
+        toast.innerHTML = `${icons[type] || icons.info}<span>${escapeHtml(message)}</span>`;
+        container.appendChild(toast);
+
+        setTimeout(() => {
+          toast.style.transition = 'opacity 0.25s ease, transform 0.25s ease';
+          toast.style.opacity = '0';
+          toast.style.transform = 'translateY(8px)';
+          setTimeout(() => toast.remove(), 260);
+        }, 3200);
+      }
+
+      /** Ouvre une fenêtre modale avec le HTML fourni */
+      function openModal(htmlContent, maxWidthClass = 'max-w-xl') {
+        const backdrop = document.getElementById('modal-backdrop');
+        const container = document.getElementById('modal-container');
+        container.className = `w-full ${maxWidthClass} bg-light-card dark:bg-dark-card border border-light-border dark:border-dark-border rounded-2xl shadow-2xl overflow-hidden animate-fade-slide my-auto`;
+        container.innerHTML = htmlContent;
+        backdrop.classList.remove('hidden');
+        backdrop.classList.add('flex');
+      }
+
+      /** Ferme la fenêtre modale active */
+      function closeModal() {
+        const backdrop = document.getElementById('modal-backdrop');
+        const container = document.getElementById('modal-container');
+        backdrop.classList.add('hidden');
+        backdrop.classList.remove('flex');
+        container.innerHTML = '';
+        appState.csvImportState = null;
+      }
+
+      /** Modale de confirmation réutilisable (remplace confirm()) */
+      function openConfirmModal({ title, message, confirmLabel = 'Confirmer', danger = false, onConfirm }) {
+        openModal(
+          `
+          <div class="p-6">
+            <h3 class="text-lg font-semibold tracking-tight">${escapeHtml(title)}</h3>
+            <p class="mt-2 text-sm text-light-muted dark:text-dark-muted leading-relaxed">${escapeHtml(message)}</p>
+            <div class="mt-6 flex items-center justify-end gap-2.5">
+              <button type="button" data-close-modal class="px-4 py-2.5 rounded-xl text-sm font-medium border border-light-border dark:border-dark-border hover:bg-light-subtle dark:hover:bg-dark-subtle transition-colors">
+                Annuler
+              </button>
+              <button id="confirm-modal-ok" type="button" class="px-4 py-2.5 rounded-xl text-sm font-semibold text-white transition-colors ${
+                danger
+                  ? 'bg-rose-600 hover:bg-rose-700'
+                  : 'bg-light-accent hover:bg-light-accentHover dark:bg-dark-accent dark:hover:bg-dark-accentHover'
+              }">
+                ${escapeHtml(confirmLabel)}
+              </button>
+            </div>
+          </div>
+          `,
+          'max-w-md'
+        );
+
+        document.getElementById('confirm-modal-ok')?.addEventListener('click', () => {
+          closeModal();
+          if (typeof onConfirm === 'function') onConfirm();
+        });
+      }
+
+      /* ===================================================================
+         7. GESTION DES PAQUETS & CARTES (CRUD)
+      =================================================================== */
+
+      function getDeckById(deckId) {
+        return appState.data.decks.find((d) => d.id === deckId) || null;
+      }
+
+      /** Ouvre la modale de création ou renommage de paquet */
+      function openDeckFormModal(existingDeck = null) {
+        const isEdit = Boolean(existingDeck);
+        openModal(
+          `
+          <form id="deck-form" class="p-6">
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="text-lg font-semibold tracking-tight">
+                ${isEdit ? 'Renommer le paquet' : 'Créer un nouveau paquet'}
+              </h3>
+              <button type="button" data-close-modal class="p-1.5 rounded-lg text-light-muted hover:bg-light-subtle dark:hover:bg-dark-subtle transition-colors" aria-label="Fermer">
+                <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+              </button>
+            </div>
+            <label for="deck-name-input" class="block text-sm font-medium mb-2">Nom du paquet</label>
+            <input
+              id="deck-name-input"
+              type="text"
+              required
+              maxlength="80"
+              value="${isEdit ? escapeHtml(existingDeck.name) : ''}"
+              placeholder="Ex : Vocabulaire Anglais, Anatomie, JavaScript..."
+              class="w-full px-3.5 py-2.5 rounded-xl bg-light-bg dark:bg-dark-bg border border-light-border dark:border-dark-border focus:outline-none focus:ring-2 focus:ring-light-accent/25 dark:focus:ring-dark-accent/50 text-sm"
+            />
+            <div class="mt-6 flex items-center justify-end gap-2.5">
+              <button type="button" data-close-modal class="px-4 py-2.5 rounded-xl text-sm font-medium border border-light-border dark:border-dark-border hover:bg-light-subtle dark:hover:bg-dark-subtle transition-colors">
+                Annuler
+              </button>
+              <button type="submit" class="px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-light-accent hover:bg-light-accentHover dark:bg-dark-accent dark:hover:bg-dark-accentHover transition-colors">
+                ${isEdit ? 'Enregistrer' : 'Créer le paquet'}
+              </button>
+            </div>
+          </form>
+          `,
+          'max-w-md'
+        );
+
+        const input = document.getElementById('deck-name-input');
+        input?.focus();
+        input?.select();
+
+        document.getElementById('deck-form')?.addEventListener('submit', (e) => {
+          e.preventDefault();
+          const name = input.value.trim();
+          if (!name) return;
+
+          if (isEdit) {
+            existingDeck.name = name;
+            saveData();
+            closeModal();
+            showToast(`Paquet renommé en « ${name} ».`, 'success');
+            renderApp();
+          } else {
+            const newDeck = {
+              id: generateId('deck'),
+              name,
+              createdAt: Date.now(),
+              cards: [],
+            };
+            appState.data.decks.push(newDeck);
+            saveData();
+            closeModal();
+            showToast(`Paquet « ${name} » créé.`, 'success');
+            renderApp();
+          }
+        });
+      }
+
+      /** Ouvre la modale d'ajout rapide ou d'édition de flashcard */
+      function openCardFormModal(deckId, existingCard = null) {
+        const isEdit = Boolean(existingCard);
+        const decks = appState.data.decks;
+        const targetDeckId = deckId || (decks[0] ? decks[0].id : null);
+
+        if (!targetDeckId) {
+          showToast('Créez d’abord un paquet pour ajouter des cartes.', 'info');
+          openDeckFormModal();
+          return;
+        }
+
+        const deckOptions = decks
+          .map(
+            (d) =>
+              `<option value="${escapeHtml(d.id)}" ${d.id === targetDeckId ? 'selected' : ''}>${escapeHtml(d.name)}</option>`
+          )
+          .join('');
+
+        openModal(
+          `
+          <form id="card-form" class="p-6">
+            <div class="flex items-center justify-between mb-4">
+              <div>
+                <h3 class="text-lg font-semibold tracking-tight">
+                  ${isEdit ? 'Modifier la flashcard' : 'Ajouter une flashcard'}
+                </h3>
+                <p class="text-xs text-light-muted dark:text-dark-muted mt-0.5">
+                  Astuce : entourez du code avec des backticks, par ex. <code class="font-mono px-1 rounded bg-light-subtle dark:bg-dark-subtle">\`const x = 1\`</code>
+                </p>
+              </div>
+              <button type="button" data-close-modal class="p-1.5 rounded-lg text-light-muted hover:bg-light-subtle dark:hover:bg-dark-subtle transition-colors" aria-label="Fermer">
+                <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+              </button>
+            </div>
+
+            ${
+              !isEdit
+                ? `
+              <div class="mb-4">
+                <label for="card-deck-select" class="block text-xs font-semibold uppercase tracking-wider text-light-muted dark:text-dark-muted mb-1.5">Paquet</label>
+                <select id="card-deck-select" class="w-full px-3.5 py-2.5 rounded-xl bg-light-bg dark:bg-dark-bg border border-light-border dark:border-dark-border text-sm focus:outline-none focus:ring-2 focus:ring-light-accent/25 dark:focus:ring-dark-accent/50">
+                  ${deckOptions}
+                </select>
+              </div>
+            `
+                : ''
+            }
+
+            <div class="space-y-4">
+              <div>
+                <label for="card-front-input" class="block text-xs font-semibold uppercase tracking-wider text-light-muted dark:text-dark-muted mb-1.5">
+                  Recto (Question)
+                </label>
+                <textarea
+                  id="card-front-input"
+                  rows="3"
+                  required
+                  placeholder="Écrivez la question, le mot ou le concept..."
+                  class="w-full px-3.5 py-2.5 rounded-xl bg-light-bg dark:bg-dark-bg border border-light-border dark:border-dark-border text-sm focus:outline-none focus:ring-2 focus:ring-light-accent/25 dark:focus:ring-dark-accent/50 resize-y"
+                >${isEdit ? escapeHtml(existingCard.front) : ''}</textarea>
+              </div>
+
+              <div>
+                <label for="card-back-input" class="block text-xs font-semibold uppercase tracking-wider text-light-muted dark:text-dark-muted mb-1.5">
+                  Verso (Réponse)
+                </label>
+                <textarea
+                  id="card-back-input"
+                  rows="4"
+                  required
+                  placeholder="Écrivez la réponse détaillée..."
+                  class="w-full px-3.5 py-2.5 rounded-xl bg-light-bg dark:bg-dark-bg border border-light-border dark:border-dark-border text-sm focus:outline-none focus:ring-2 focus:ring-light-accent/25 dark:focus:ring-dark-accent/50 resize-y"
+                >${isEdit ? escapeHtml(existingCard.back) : ''}</textarea>
+              </div>
+            </div>
+
+            <div class="mt-6 flex flex-wrap items-center justify-between gap-2.5">
+              <span class="text-xs text-light-muted dark:text-dark-muted hidden sm:inline">
+                ${isEdit ? 'Ctrl + Entrée pour enregistrer' : 'Ctrl + Entrée pour ajouter et continuer'}
+              </span>
+              <div class="flex items-center gap-2 ml-auto">
+                <button type="button" data-close-modal class="px-4 py-2.5 rounded-xl text-sm font-medium border border-light-border dark:border-dark-border hover:bg-light-subtle dark:hover:bg-dark-subtle transition-colors">
+                  Annuler
+                </button>
+                ${
+                  !isEdit
+                    ? `
+                  <button type="button" id="card-save-continue-btn" class="px-4 py-2.5 rounded-xl text-sm font-medium border border-light-border dark:border-dark-accent/50 bg-light-subtle dark:bg-dark-accent/15 text-light-text dark:text-dark-accentSoft hover:opacity-90 transition-opacity">
+                    Ajouter + autre
+                  </button>
+                `
+                    : ''
+                }
+                <button type="submit" class="px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-light-accent hover:bg-light-accentHover dark:bg-dark-accent dark:hover:bg-dark-accentHover transition-colors">
+                  ${isEdit ? 'Enregistrer' : 'Ajouter'}
+                </button>
+              </div>
+            </div>
+          </form>
+          `,
+          'max-w-xl'
+        );
+
+        const frontInput = document.getElementById('card-front-input');
+        const backInput = document.getElementById('card-back-input');
+        const deckSelect = document.getElementById('card-deck-select');
+        frontInput?.focus();
+
+        function handleSave(keepOpen) {
+          const front = frontInput.value.trim();
+          const back = backInput.value.trim();
+          if (!front || !back) {
+            showToast('Veuillez remplir le Recto et le Verso.', 'error');
+            return;
+          }
+
+          if (isEdit) {
+            existingCard.front = front;
+            existingCard.back = back;
+            saveData();
+            closeModal();
+            showToast('Carte mise à jour.', 'success');
+            renderApp();
+          } else {
+            const chosenDeck = getDeckById(deckSelect ? deckSelect.value : targetDeckId);
+            if (!chosenDeck) return;
+            chosenDeck.cards.push(createCardObject(front, back));
+            saveData();
+            renderApp();
+
+            if (keepOpen) {
+              frontInput.value = '';
+              backInput.value = '';
+              frontInput.focus();
+              showToast(`Carte ajoutée à « ${chosenDeck.name} ».`, 'success');
+            } else {
+              closeModal();
+              showToast(`Carte ajoutée à « ${chosenDeck.name} ».`, 'success');
+            }
+          }
+        }
+
+        document.getElementById('card-form')?.addEventListener('submit', (e) => {
+          e.preventDefault();
+          handleSave(false);
+        });
+
+        document.getElementById('card-save-continue-btn')?.addEventListener('click', () => {
+          handleSave(true);
+        });
+
+        // Raccourci Ctrl+Entrée / Cmd+Entrée dans les champs texte
+        const onCtrlEnter = (e) => {
+          if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+            e.preventDefault();
+            handleSave(!isEdit);
+          }
+        };
+        frontInput?.addEventListener('keydown', onCtrlEnter);
+        backInput?.addEventListener('keydown', onCtrlEnter);
+      }
+
+      /** Réinitialise la progression SRS d'une carte */
+      function resetCardProgress(card) {
+        card.status = 'new';
+        card.step = 0;
+        card.interval = 0;
+        card.ease = 2.5;
+        card.reps = 0;
+        card.lapses = 0;
+        card.due = 0;
+      }
+
+      /* ===================================================================
+         8. MODALE D'IMPORT CSV (DRAG & DROP, COLLAGE, APERÇU EN DIRECT)
+      =================================================================== */
+
+      function openCsvImportModal(defaultDeckId = null) {
+        const decks = appState.data.decks;
+        appState.csvImportState = {
+          rawText: '',
+          fileName: '',
+          delimiterMode: 'auto', // 'auto' | ',' | ';' | '\t'
+          detectedDelimiter: ',',
+          skipHeader: false,
+          swapSides: false,
+          targetDeckId: defaultDeckId || (decks[0] ? decks[0].id : '__new__'),
+          newDeckName: '',
+          parsedCards: [],
+        };
+
+        const deckOptions = [
+          ...decks.map(
+            (d) =>
+              `<option value="${escapeHtml(d.id)}" ${d.id === appState.csvImportState.targetDeckId ? 'selected' : ''}>${escapeHtml(d.name)}</option>`
+          ),
+          `<option value="__new__" ${appState.csvImportState.targetDeckId === '__new__' ? 'selected' : ''}>+ Créer un nouveau paquet...</option>`,
+        ].join('');
+
+        openModal(
+          `
+          <div class="p-5 sm:p-6 max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between mb-4">
+              <div>
+                <h3 class="text-lg font-semibold tracking-tight">Importer des flashcards (CSV)</h3>
+                <p class="text-xs text-light-muted dark:text-dark-muted mt-0.5">Compatible Noji, Anki, Excel et Google Sheets (2 colonnes : Recto, Verso)</p>
+              </div>
+              <button type="button" data-close-modal class="p-1.5 rounded-lg text-light-muted hover:bg-light-subtle dark:hover:bg-dark-subtle transition-colors" aria-label="Fermer">
+                <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+              </button>
+            </div>
+
+            <!-- Zone Glisser-Déposer + Sélecteur de fichier -->
+            <div
+              id="csv-dropzone"
+              class="relative border-2 border-dashed border-light-border dark:border-dark-border hover:border-light-accent/50 dark:hover:border-dark-accent rounded-2xl p-5 text-center cursor-pointer bg-light-bg/60 dark:bg-dark-bg/60 transition-colors"
+            >
+              <input id="csv-file-input" type="file" accept=".csv,.txt,text/csv,text/plain" class="hidden" />
+              <div class="flex flex-col items-center gap-1.5">
+                <div class="w-10 h-10 rounded-xl bg-light-subtle dark:bg-dark-subtle flex items-center justify-center text-light-muted dark:text-dark-accentSoft">
+                  <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="17 8 12 3 7 8"></polyline>
+                    <line x1="12" y1="3" x2="12" y2="15"></line>
+                  </svg>
+                </div>
+                <p id="csv-dropzone-label" class="text-sm font-medium">
+                  Glissez un fichier <span class="font-mono text-xs px-1 py-0.5 rounded bg-light-subtle dark:bg-dark-subtle">.csv</span> / <span class="font-mono text-xs px-1 py-0.5 rounded bg-light-subtle dark:bg-dark-subtle">.txt</span> ou cliquez pour parcourir
+                </p>
+                <p class="text-xs text-light-muted dark:text-dark-muted">Ou collez directement votre contenu ci-dessous</p>
+              </div>
+            </div>
+
+            <!-- Zone de collage direct -->
+            <div class="mt-3">
+              <textarea
+                id="csv-paste-area"
+                rows="4"
+                placeholder="Exemple :&#10;Bonjour;Hello&#10;Merci;Thank you&#10;&quot;Comment allez-vous ?&quot;;&quot;How are you?&quot;"
+                class="w-full px-3.5 py-2.5 rounded-xl bg-light-bg dark:bg-dark-bg border border-light-border dark:border-dark-border text-xs sm:text-sm font-mono focus:outline-none focus:ring-2 focus:ring-light-accent/25 dark:focus:ring-dark-accent/50 resize-y"
+              ></textarea>
+            </div>
+
+            <!-- Options de parsing & Destination -->
+            <div class="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <!-- Séparateur -->
+              <div>
+                <label class="block text-xs font-semibold uppercase tracking-wider text-light-muted dark:text-dark-muted mb-1.5">
+                  Séparateur <span id="csv-detected-badge" class="normal-case font-normal text-blue-600 dark:text-dark-accentSoft"></span>
+                </label>
+                <div class="grid grid-cols-4 gap-1 p-1 rounded-xl bg-light-subtle dark:bg-dark-bg border border-light-border dark:border-dark-border text-xs font-medium" id="csv-delimiter-group">
+                  <button type="button" data-delim="auto" class="csv-delim-btn py-1.5 rounded-lg transition-colors">Auto</button>
+                  <button type="button" data-delim="," class="csv-delim-btn py-1.5 rounded-lg transition-colors">Virgule</button>
+                  <button type="button" data-delim=";" class="csv-delim-btn py-1.5 rounded-lg transition-colors">Point-v.</button>
+                  <button type="button" data-delim="\t" class="csv-delim-btn py-1.5 rounded-lg transition-colors">Tab</button>
+                </div>
+              </div>
+
+              <!-- Paquet de destination -->
+              <div>
+                <label for="csv-target-deck" class="block text-xs font-semibold uppercase tracking-wider text-light-muted dark:text-dark-muted mb-1.5">
+                  Paquet de destination
+                </label>
+                <select id="csv-target-deck" class="w-full px-3 py-2 rounded-xl bg-light-bg dark:bg-dark-bg border border-light-border dark:border-dark-border text-sm focus:outline-none focus:ring-2 focus:ring-light-accent/25 dark:focus:ring-dark-accent/50">
+                  ${deckOptions}
+                </select>
+              </div>
+            </div>
+
+            <!-- Nom du nouveau paquet si "__new__" sélectionné -->
+            <div id="csv-new-deck-wrap" class="mt-3 ${appState.csvImportState.targetDeckId === '__new__' ? '' : 'hidden'}">
+              <label for="csv-new-deck-name" class="block text-xs font-semibold uppercase tracking-wider text-light-muted dark:text-dark-muted mb-1.5">
+                Nom du nouveau paquet
+              </label>
+              <input
+                id="csv-new-deck-name"
+                type="text"
+                placeholder="Ex : Vocabulaire Espagnol"
+                class="w-full px-3.5 py-2 rounded-xl bg-light-bg dark:bg-dark-bg border border-light-border dark:border-dark-border text-sm focus:outline-none focus:ring-2 focus:ring-light-accent/25 dark:focus:ring-dark-accent/50"
+              />
+            </div>
+
+            <!-- Cases à cocher -->
+            <div class="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
+              <label class="inline-flex items-center gap-2 cursor-pointer select-none">
+                <input id="csv-skip-header" type="checkbox" class="w-4 h-4 rounded accent-neutral-800 dark:accent-violet-500" />
+                <span>Ignorer la 1<sup>re</sup> ligne (en-tête)</span>
+              </label>
+              <label class="inline-flex items-center gap-2 cursor-pointer select-none">
+                <input id="csv-swap-sides" type="checkbox" class="w-4 h-4 rounded accent-neutral-800 dark:accent-violet-500" />
+                <span>Inverser Recto / Verso</span>
+              </label>
+            </div>
+
+            <!-- Aperçu en direct des 5 premières cartes -->
+            <div class="mt-5">
+              <div class="flex items-center justify-between mb-2">
+                <span class="text-xs font-semibold uppercase tracking-wider text-light-muted dark:text-dark-muted">
+                  Aperçu (5 premières cartes)
+                </span>
+                <span id="csv-count-badge" class="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-light-subtle dark:bg-dark-subtle text-light-muted dark:text-dark-muted">
+                  0 carte détectée
+                </span>
+              </div>
+              <div id="csv-preview-box" class="rounded-xl border border-light-border dark:border-dark-border overflow-hidden bg-light-bg/50 dark:bg-dark-bg/50">
+                <div class="p-4 text-center text-xs text-light-muted dark:text-dark-muted">
+                  Importez un fichier ou collez du texte CSV pour voir l’aperçu instantané.
+                </div>
+              </div>
+            </div>
+
+            <!-- Boutons d'action -->
+            <div class="mt-6 flex items-center justify-end gap-2.5">
+              <button type="button" data-close-modal class="px-4 py-2.5 rounded-xl text-sm font-medium border border-light-border dark:border-dark-border hover:bg-light-subtle dark:hover:bg-dark-subtle transition-colors">
+                Annuler
+              </button>
+              <button
+                id="csv-confirm-import-btn"
+                type="button"
+                disabled
+                class="px-5 py-2.5 rounded-xl text-sm font-semibold text-white bg-light-accent hover:bg-light-accentHover dark:bg-dark-accent dark:hover:bg-dark-accentHover disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+              >
+                Importer les cartes
+              </button>
+            </div>
+          </div>
+          `,
+          'max-w-2xl'
+        );
+
+        bindCsvModalEvents();
+        refreshCsvPreview();
+      }
+
+      /** Connecte tous les événements de la modale CSV */
+      function bindCsvModalEvents() {
+        const st = appState.csvImportState;
+        const dropzone = document.getElementById('csv-dropzone');
+        const fileInput = document.getElementById('csv-file-input');
+        const pasteArea = document.getElementById('csv-paste-area');
+        const targetSelect = document.getElementById('csv-target-deck');
+        const newDeckWrap = document.getElementById('csv-new-deck-wrap');
+        const newDeckInput = document.getElementById('csv-new-deck-name');
+        const skipHeaderCb = document.getElementById('csv-skip-header');
+        const swapSidesCb = document.getElementById('csv-swap-sides');
+        const confirmBtn = document.getElementById('csv-confirm-import-btn');
+
+        function handleFile(file) {
+          if (!file) return;
+          const reader = new FileReader();
+          reader.onload = (ev) => {
+            const content = String(ev.target.result || '');
+            st.rawText = content;
+            st.fileName = file.name;
+            pasteArea.value = content;
+            document.getElementById('csv-dropzone-label').innerHTML =
+              `<span class="text-emerald-600 dark:text-emerald-400 font-semibold">${escapeHtml(file.name)}</span> chargé`;
+
+            // Pré-remplit le nom du nouveau paquet avec le nom du fichier
+            const baseName = file.name.replace(/\.(csv|txt)$/i, '').replace(/[_-]+/g, ' ').trim();
+            if (baseName && !newDeckInput.value.trim()) {
+              newDeckInput.value = baseName;
+              st.newDeckName = baseName;
+            }
+            refreshCsvPreview();
+          };
+          reader.onerror = () => showToast('Impossible de lire ce fichier.', 'error');
+          reader.readAsText(file, 'UTF-8');
+        }
+
+        dropzone?.addEventListener('click', () => fileInput?.click());
+        fileInput?.addEventListener('change', (e) => {
+          if (e.target.files && e.target.files[0]) handleFile(e.target.files[0]);
+        });
+
+        dropzone?.addEventListener('dragover', (e) => {
+          e.preventDefault();
+          dropzone.classList.add('border-light-accent', 'dark:border-dark-accent', 'bg-light-subtle/70', 'dark:bg-dark-accent/10');
+        });
+        dropzone?.addEventListener('dragleave', () => {
+          dropzone.classList.remove('border-light-accent', 'dark:border-dark-accent', 'bg-light-subtle/70', 'dark:bg-dark-accent/10');
+        });
+        dropzone?.addEventListener('drop', (e) => {
+          e.preventDefault();
+          dropzone.classList.remove('border-light-accent', 'dark:border-dark-accent', 'bg-light-subtle/70', 'dark:bg-dark-accent/10');
+          if (e.dataTransfer?.files?.[0]) handleFile(e.dataTransfer.files[0]);
+        });
+
+        pasteArea?.addEventListener('input', (e) => {
+          st.rawText = e.target.value;
+          refreshCsvPreview();
+        });
+
+        document.querySelectorAll('.csv-delim-btn').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            st.delimiterMode = btn.dataset.delim === '\\t' ? '\t' : btn.dataset.delim;
+            refreshCsvPreview();
+          });
+        });
+
+        targetSelect?.addEventListener('change', (e) => {
+          st.targetDeckId = e.target.value;
+          newDeckWrap.classList.toggle('hidden', st.targetDeckId !== '__new__');
+          if (st.targetDeckId === '__new__') newDeckInput?.focus();
+        });
+
+        newDeckInput?.addEventListener('input', (e) => {
+          st.newDeckName = e.target.value;
+        });
+
+        skipHeaderCb?.addEventListener('change', (e) => {
+          st.skipHeader = e.target.checked;
+          refreshCsvPreview();
+        });
+
+        swapSidesCb?.addEventListener('change', (e) => {
+          st.swapSides = e.target.checked;
+          refreshCsvPreview();
+        });
+
+        confirmBtn?.addEventListener('click', () => {
+          if (!st.parsedCards.length) return;
+
+          let targetDeck = null;
+          if (st.targetDeckId === '__new__') {
+            const name = (newDeckInput.value || '').trim();
+            if (!name) {
+              showToast('Veuillez saisir un nom pour le nouveau paquet.', 'error');
+              newDeckInput.focus();
+              return;
+            }
+            targetDeck = {
+              id: generateId('deck'),
+              name,
+              createdAt: Date.now(),
+              cards: [],
+            };
+            appState.data.decks.push(targetDeck);
+          } else {
+            targetDeck = getDeckById(st.targetDeckId);
+          }
+
+          if (!targetDeck) {
+            showToast('Paquet de destination introuvable.', 'error');
+            return;
+          }
+
+          for (const pair of st.parsedCards) {
+            targetDeck.cards.push(createCardObject(pair.front, pair.back));
+          }
+
+          saveData();
+          const count = st.parsedCards.length;
+          const deckName = targetDeck.name;
+          closeModal();
+          showToast(`${count} carte${count > 1 ? 's' : ''} importée${count > 1 ? 's' : ''} dans « ${deckName} ».`, 'success');
+          renderApp();
+        });
+      }
+
+      /** Met à jour l'aperçu CSV en temps réel */
+      function refreshCsvPreview() {
+        const st = appState.csvImportState;
+        if (!st) return;
+
+        // Mise en surbrillance du bouton de séparateur actif
+        document.querySelectorAll('.csv-delim-btn').forEach((btn) => {
+          const val = btn.dataset.delim === '\\t' ? '\t' : btn.dataset.delim;
+          const active = val === st.delimiterMode;
+          btn.className = `csv-delim-btn py-1.5 rounded-lg transition-colors ${
+            active
+              ? 'bg-light-card dark:bg-dark-card text-light-text dark:text-dark-text shadow-xs font-semibold'
+              : 'text-light-muted dark:text-dark-muted hover:text-light-text dark:hover:text-dark-text'
+          }`;
+        });
+
+        const detected = detectCsvDelimiter(st.rawText);
+        st.detectedDelimiter = detected;
+        const activeDelim = st.delimiterMode === 'auto' ? detected : st.delimiterMode;
+
+        const delimLabels = { ',': 'Virgule', ';': 'Point-virgule', '\t': 'Tabulation' };
+        const badgeEl = document.getElementById('csv-detected-badge');
+        if (badgeEl) {
+          badgeEl.textContent =
+            st.rawText.trim() && st.delimiterMode === 'auto'
+              ? `(détecté : ${delimLabels[detected] || detected})`
+              : '';
+        }
+
+        let rows = parseRFC4180CSV(st.rawText, activeDelim);
+        if (st.skipHeader && rows.length > 0) {
+          rows = rows.slice(1);
+        }
+
+        const cards = [];
+        for (const r of rows) {
+          if (r.length < 2) continue;
+          const colA = (r[0] || '').trim();
+          const colB = (r[1] || '').trim();
+          if (!colA || !colB) continue;
+          cards.push(st.swapSides ? { front: colB, back: colA } : { front: colA, back: colB });
+        }
+        st.parsedCards = cards;
+
+        const countBadge = document.getElementById('csv-count-badge');
+        const previewBox = document.getElementById('csv-preview-box');
+        const confirmBtn = document.getElementById('csv-confirm-import-btn');
+
+        if (cards.length === 0) {
+          countBadge.textContent = '0 carte prête';
+          countBadge.className =
+            'text-xs font-semibold px-2.5 py-0.5 rounded-full bg-light-subtle dark:bg-dark-subtle text-light-muted dark:text-dark-muted';
+          confirmBtn.disabled = true;
+          confirmBtn.textContent = 'Importer les cartes';
+          previewBox.innerHTML = `<div class="p-4 text-center text-xs text-light-muted dark:text-dark-muted">${
+            st.rawText.trim()
+              ? 'Aucune paire Recto / Verso valide détectée. Essayez un autre séparateur.'
+              : 'Importez un fichier ou collez du texte CSV pour voir l’aperçu instantané.'
+          }</div>`;
+          return;
+        }
+
+        countBadge.textContent = `${cards.length} carte${cards.length > 1 ? 's' : ''} prête${cards.length > 1 ? 's' : ''} à être importée${cards.length > 1 ? 's' : ''}`;
+        countBadge.className =
+          'text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-300';
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = `Importer ${cards.length} carte${cards.length > 1 ? 's' : ''}`;
+
+        const sample = cards.slice(0, 5);
+        previewBox.innerHTML = `
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr class="border-b border-light-border dark:border-dark-border bg-light-subtle/70 dark:bg-dark-subtle/70 text-light-muted dark:text-dark-muted">
+                  <th class="py-2 px-3 font-semibold w-1/2">Recto</th>
+                  <th class="py-2 px-3 font-semibold w-1/2">Verso</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-light-border/70 dark:divide-dark-border/70">
+                ${sample
+                  .map(
+                    (c) => `
+                  <tr>
+                    <td class="py-2 px-3 align-top break-words max-w-[220px]">${escapeHtml(c.front.length > 90 ? c.front.slice(0, 90) + '…' : c.front)}</td>
+                    <td class="py-2 px-3 align-top break-words max-w-[220px] text-light-muted dark:text-dark-muted">${escapeHtml(c.back.length > 90 ? c.back.slice(0, 90) + '…' : c.back)}</td>
+                  </tr>
+                `
+                  )
+                  .join('')}
+              </tbody>
+            </table>
+          </div>
+          ${
+            cards.length > 5
+              ? `<div class="px-3 py-1.5 text-[11px] text-center text-light-muted dark:text-dark-muted border-t border-light-border/70 dark:border-dark-border/70 bg-light-subtle/40 dark:bg-dark-subtle/40">+ ${cards.length - 5} autre${cards.length - 5 > 1 ? 's' : ''} carte${cards.length - 5 > 1 ? 's' : ''}</div>`
+              : ''
+          }
+        `;
+      }
+
+      /* ===================================================================
+         9. MOTEUR DE SESSION D'ÉTUDE (SRS & MODE RÉVISION LIBRE)
+      =================================================================== */
+
+      /** Arrête un éventuel minuteur de décompte en attente */
+      function clearWaitingTimer() {
+        if (appState.waitingTimerId) {
+          clearInterval(appState.waitingTimerId);
+          appState.waitingTimerId = null;
+        }
+      }
+
+      /** Lance une session de révision pour un paquet */
+      function startStudySession(deckId, mode = 'srs') {
+        const deck = getDeckById(deckId);
+        if (!deck) return;
+
+        if (deck.cards.length === 0) {
+          showToast('Ajoutez d’abord des cartes dans ce paquet pour commencer.', 'info');
+          openCardFormModal(deck.id);
+          return;
+        }
+
+        clearWaitingTimer();
+        appState.activeDeckId = deckId;
+        appState.view = 'study';
+
+        if (mode === 'free') {
+          // Mode Révision Libre : mélange toutes les cartes sans modifier l'état SRS
+          const shuffledIds = [...deck.cards]
+            .sort(() => Math.random() - 0.5)
+            .map((c) => c.id);
+
+          appState.study = {
+            deckId,
+            mode: 'free',
+            freeQueue: shuffledIds,
+            initialTotal: shuffledIds.length,
+            currentCardId: shuffledIds[0] || null,
+            isFlipped: false,
+            reviewedCount: 0,
+            successCount: 0,
+            ratings: { again: 0, hard: 0, good: 0, easy: 0 },
+            completed: shuffledIds.length === 0,
+            waitingCardId: null,
+            waitingUntil: null,
+          };
+        } else {
+          // Mode SRS normal
+          const counts = getDeckCounts(deck);
+          appState.study = {
+            deckId,
+            mode: 'srs',
+            initialTotal: Math.max(1, counts.totalDue),
+            currentCardId: null,
+            isFlipped: false,
+            reviewedCount: 0,
+            successCount: 0,
+            ratings: { again: 0, hard: 0, good: 0, easy: 0 },
+            completed: false,
+            waitingCardId: null,
+            waitingUntil: null,
+          };
+          pickNextSrsCard(false);
+        }
+
+        renderApp();
+      }
+
+      /**
+       * Sélectionne intelligemment la prochaine carte en mode SRS :
+       * 1. Cartes en cours (learning/relearning) dont due <= now
+       * 2. Cartes en révision dues aujourd'hui (due <= endOfDay)
+       * 3. Nouvelles cartes
+       * 4. S'il reste uniquement des cartes en cours programmées dans quelques minutes,
+       *    passe en état d'attente avec compte à rebours (sauf si forcePull = true).
+       */
+      function pickNextSrsCard(forcePull = false) {
+        const session = appState.study;
+        if (!session || session.mode !== 'srs') return;
+
+        const deck = getDeckById(session.deckId);
+        if (!deck) return;
+
+        const now = Date.now();
+        const endToday = getEndOfLocalDay(now);
+
+        clearWaitingTimer();
+        session.isFlipped = false;
+        session.waitingCardId = null;
+        session.waitingUntil = null;
+
+        // 1. Cartes en apprentissage/réapprentissage prêtes maintenant
+        const readyLearning = deck.cards
+          .filter((c) => (c.status === 'learning' || c.status === 'relearning') && c.due <= now)
+          .sort((a, b) => a.due - b.due);
+
+        if (readyLearning.length > 0) {
+          session.currentCardId = readyLearning[0].id;
+          session.completed = false;
+          return;
+        }
+
+        // 2. Cartes en révision dues aujourd'hui
+        const dueReviews = deck.cards
+          .filter((c) => c.status === 'review' && c.due <= endToday)
+          .sort((a, b) => a.due - b.due);
+
+        if (dueReviews.length > 0) {
+          session.currentCardId = dueReviews[0].id;
+          session.completed = false;
+          return;
+        }
+
+        // 3. Nouvelles cartes
+        const newCards = deck.cards.filter((c) => c.status === 'new');
+        if (newCards.length > 0) {
+          session.currentCardId = newCards[0].id;
+          session.completed = false;
+          return;
+        }
+
+        // 4. Cartes en cours en attente dans cette session (ex: 1 min, 6 min, 10 min)
+        const pendingLearning = deck.cards
+          .filter((c) => (c.status === 'learning' || c.status === 'relearning') && c.due > now)
+          .sort((a, b) => a.due - b.due);
+
+        if (pendingLearning.length > 0) {
+          if (forcePull) {
+            session.currentCardId = pendingLearning[0].id;
+            session.completed = false;
+            return;
+          }
+          session.currentCardId = null;
+          session.waitingCardId = pendingLearning[0].id;
+          session.waitingUntil = pendingLearning[0].due;
+          session.completed = false;
+          return;
+        }
+
+        // Plus aucune carte à réviser : session terminée !
+        session.currentCardId = null;
+        session.completed = true;
+      }
+
+      /** Retourne la carte actuellement affichée */
+      function flipCurrentCard() {
+        const session = appState.study;
+        if (!session || !session.currentCardId || session.completed || session.waitingCardId) return;
+        session.isFlipped = !session.isFlipped;
+
+        // Mise à jour fluide sans reconstruire toute la page si l'élément est déjà dans le DOM
+        const cardInner = document.getElementById('study-flip-inner');
+        const controlsWrap = document.getElementById('study-controls-wrap');
+        if (cardInner && controlsWrap) {
+          cardInner.classList.toggle('is-flipped', session.isFlipped);
+          renderStudyControlsInto(controlsWrap);
+        } else {
+          renderApp();
+        }
+      }
+
+      /** Évalue la carte actuelle selon la note ('again' | 'hard' | 'good' | 'easy') */
+      function rateCurrentCard(rating) {
+        const session = appState.study;
+        if (!session || !session.currentCardId || !session.isFlipped) return;
+
+        const deck = getDeckById(session.deckId);
+        if (!deck) return;
+        const card = deck.cards.find((c) => c.id === session.currentCardId);
+        if (!card) return;
+
+        session.reviewedCount++;
+        if (rating !== 'again') {
+          session.successCount++;
+        }
+        if (session.ratings[rating] !== undefined) {
+          session.ratings[rating]++;
+        }
+
+        if (session.mode === 'free') {
+          // En mode révision libre, ne modifie pas la progression SRS
+          session.freeQueue.shift();
+          if (rating === 'again') {
+            // Remet la carte plus loin dans la file libre
+            session.freeQueue.push(card.id);
+          }
+          session.isFlipped = false;
+          if (session.freeQueue.length === 0) {
+            session.currentCardId = null;
+            session.completed = true;
+          } else {
+            session.currentCardId = session.freeQueue[0];
+          }
+          renderApp();
+          return;
+        }
+
+        // En mode SRS : applique la simulation et sauvegarde
+        const next = simulateSRS(card, rating, Date.now());
+        card.status = next.status;
+        card.step = next.step;
+        card.interval = next.interval;
+        card.ease = next.ease;
+        card.reps = next.reps;
+        card.lapses = next.lapses;
+        card.due = next.due;
+
+        saveData();
+        recordReviewInStats();
+
+        pickNextSrsCard(false);
+        renderApp();
+      }
+
+      /* ===================================================================
+         10. RENDU DES VUES (TABLEAU DE BORD, GÉRER LES CARTES, RÉVISION)
+      =================================================================== */
+
+      /** Met à jour les compteurs dans l'en-tête */
+      function updateHeaderStats() {
+        normalizeDailyStats(appState.data.stats);
+        const reviewedEl = document.getElementById('header-reviewed-today');
+        const streakEl = document.getElementById('header-streak');
+        if (reviewedEl) reviewedEl.textContent = String(appState.data.stats.reviewedToday || 0);
+        if (streakEl) streakEl.textContent = String(appState.data.stats.streak || 0);
+      }
+
+      /** Routeur de rendu principal */
+      function renderApp() {
+        updateHeaderStats();
+        clearWaitingTimer();
+
+        const main = document.getElementById('app-main');
+        if (!main) return;
+
+        if (appState.view === 'manage') {
+          const deck = getDeckById(appState.activeDeckId);
+          if (!deck) {
+            appState.view = 'dashboard';
+            renderDashboardView(main);
+            return;
+          }
+          renderManageView(main, deck);
+        } else if (appState.view === 'study') {
+          const deck = getDeckById(appState.activeDeckId);
+          if (!deck || !appState.study) {
+            appState.view = 'dashboard';
+            renderDashboardView(main);
+            return;
+          }
+          renderStudyView(main, deck);
+        } else {
+          renderDashboardView(main);
+        }
+      }
+
+      /* -------------------------------------------------------------------
+         VUE 1 : TABLEAU DE BORD & GRILLE DES PAQUETS
+      ------------------------------------------------------------------- */
+      function renderDashboardView(container) {
+        const decks = appState.data.decks;
+        const now = Date.now();
+
+        // Résumé global
+        let globalDue = 0;
+        let globalCards = 0;
+        for (const d of decks) {
+          const c = getDeckCounts(d, now);
+          globalDue += c.totalDue;
+          globalCards += c.total;
+        }
+
+        container.innerHTML = `
+          <div class="animate-fade-slide">
+            <!-- En-tête de section + boutons d'action -->
+            <div class="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8">
+              <div>
+                <h1 class="text-2xl sm:text-3xl font-bold tracking-tight">Mes paquets</h1>
+                <p class="text-sm text-light-muted dark:text-dark-muted mt-1">
+                  ${
+                    globalDue > 0
+                      ? `<span class="font-medium text-light-text dark:text-dark-text">${globalDue} carte${globalDue > 1 ? 's' : ''}</span> à étudier aujourd’hui sur ${globalCards} au total.`
+                      : decks.length > 0
+                        ? `Toutes vos révisions du jour sont à jour (${globalCards} carte${globalCards > 1 ? 's' : ''}).`
+                        : 'Créez votre premier paquet ou importez un fichier CSV pour démarrer.'
+                  }
+                </p>
+              </div>
+
+              <div class="flex flex-wrap items-center gap-2.5">
+                <button
+                  id="dash-import-csv-btn"
+                  type="button"
+                  class="inline-flex sm:hidden items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-sm font-medium bg-light-card dark:bg-dark-card border border-light-border dark:border-dark-border hover:bg-light-subtle dark:hover:bg-dark-subtle transition-colors"
+                >
+                  <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                  Importer CSV
+                </button>
+                <button
+                  id="dash-add-card-btn"
+                  type="button"
+                  class="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-medium bg-light-card dark:bg-dark-card border border-light-border dark:border-dark-border hover:bg-light-subtle dark:hover:bg-dark-subtle transition-colors shadow-soft"
+                >
+                  <svg class="w-4 h-4 text-light-muted dark:text-dark-accentSoft" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="3"></rect><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
+                  Nouvelle carte
+                </button>
+                <button
+                  id="dash-create-deck-btn"
+                  type="button"
+                  class="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-light-accent hover:bg-light-accentHover dark:bg-dark-accent dark:hover:bg-dark-accentHover transition-colors shadow-soft"
+                >
+                  <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                  Nouveau paquet
+                </button>
+              </div>
+            </div>
+
+            <!-- Légende compacte des compteurs -->
+            ${
+              decks.length > 0
+                ? `
+              <div class="flex flex-wrap items-center gap-x-5 gap-y-2 mb-5 text-xs text-light-muted dark:text-dark-muted">
+                <span class="inline-flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-blue-500"></span> Nouvelles</span>
+                <span class="inline-flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-orange-500"></span> En cours / À revoir</span>
+                <span class="inline-flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-emerald-500"></span> À réviser aujourd’hui</span>
+              </div>
+            `
+                : ''
+            }
+
+            <!-- Grille des paquets -->
+            ${
+              decks.length === 0
+                ? `
+              <div class="rounded-2xl border border-dashed border-light-border dark:border-dark-border bg-light-card/60 dark:bg-dark-card/60 p-12 text-center">
+                <div class="w-14 h-14 mx-auto rounded-2xl bg-light-subtle dark:bg-dark-subtle flex items-center justify-center text-light-muted dark:text-dark-accentSoft mb-4">
+                  <svg class="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="5" width="13" height="15" rx="2.5"></rect><path d="M9 3h9a2 2 0 0 1 2 2v12"></path></svg>
+                </div>
+                <h2 class="text-lg font-semibold">Aucun paquet pour le moment</h2>
+                <p class="text-sm text-light-muted dark:text-dark-muted mt-1 max-w-md mx-auto">
+                  Créez un paquet personnalisé ou importez directement vos flashcards depuis un fichier CSV.
+                </p>
+                <div class="mt-6 flex flex-wrap justify-center gap-3">
+                  <button type="button" id="empty-create-deck" class="px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-light-accent hover:bg-light-accentHover dark:bg-dark-accent dark:hover:bg-dark-accentHover transition-colors">
+                    Créer un paquet
+                  </button>
+                  <button type="button" id="empty-import-csv" class="px-4 py-2.5 rounded-xl text-sm font-medium bg-light-card dark:bg-dark-card border border-light-border dark:border-dark-border hover:bg-light-subtle dark:hover:bg-dark-subtle transition-colors">
+                    Importer un CSV
+                  </button>
+                </div>
+              </div>
+            `
+                : `
+              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                ${decks.map((deck) => renderDeckCardHTML(deck, now)).join('')}
+              </div>
+            `
+            }
+          </div>
+        `;
+
+        // Événements du tableau de bord
+        document.getElementById('dash-create-deck-btn')?.addEventListener('click', () => openDeckFormModal());
+        document.getElementById('empty-create-deck')?.addEventListener('click', () => openDeckFormModal());
+        document.getElementById('dash-import-csv-btn')?.addEventListener('click', () => openCsvImportModal());
+        document.getElementById('empty-import-csv')?.addEventListener('click', () => openCsvImportModal());
+        document.getElementById('dash-add-card-btn')?.addEventListener('click', () => openCardFormModal());
+
+        // Délégation des actions sur chaque carte de paquet
+        container.querySelectorAll('[data-deck-action]').forEach((btn) => {
+          btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const action = btn.dataset.deckAction;
+            const deckId = btn.dataset.deckId;
+            const deck = getDeckById(deckId);
+            if (!deck) return;
+
+            if (action === 'study') {
+              startStudySession(deckId, 'srs');
+            } else if (action === 'free') {
+              startStudySession(deckId, 'free');
+            } else if (action === 'manage') {
+              appState.activeDeckId = deckId;
+              appState.manageSearch = '';
+              appState.manageFilter = 'all';
+              appState.view = 'manage';
+              renderApp();
+            } else if (action === 'add-card') {
+              openCardFormModal(deckId);
+            } else if (action === 'rename') {
+              openDeckFormModal(deck);
+            } else if (action === 'export') {
+              exportDeckToCSV(deckId);
+            } else if (action === 'delete') {
+              openConfirmModal({
+                title: `Supprimer « ${deck.name} » ?`,
+                message: `Cette action supprimera définitivement le paquet et ses ${deck.cards.length} carte${deck.cards.length > 1 ? 's' : ''}.`,
+                confirmLabel: 'Supprimer',
+                danger: true,
+                onConfirm: () => {
+                  appState.data.decks = appState.data.decks.filter((d) => d.id !== deckId);
+                  saveData();
+                  showToast(`Paquet « ${deck.name} » supprimé.`, 'info');
+                  renderApp();
+                },
+              });
+            }
+          });
+        });
+      }
+
+      /** Génère le HTML d'une carte de paquet dans la grille */
+      function renderDeckCardHTML(deck, now) {
+        const c = getDeckCounts(deck, now);
+        const hasDue = c.totalDue > 0;
+
+        return `
+          <article class="group flex flex-col justify-between rounded-2xl bg-light-card dark:bg-dark-card border border-light-border dark:border-dark-border p-5 shadow-soft hover:shadow-card dark:hover:shadow-card-dark hover:border-neutral-300 dark:hover:border-dark-accent/45 transition-all duration-200">
+            <div>
+              <!-- Haut : titre & boutons discrets (renommer / exporter / supprimer) -->
+              <div class="flex items-start justify-between gap-2">
+                <h2 class="font-semibold text-base sm:text-lg leading-snug tracking-tight break-words">
+                  ${escapeHtml(deck.name)}
+                </h2>
+                <div class="flex items-center gap-0.5 shrink-0">
+                  <button
+                    type="button"
+                    data-deck-action="rename"
+                    data-deck-id="${escapeHtml(deck.id)}"
+                    class="p-1.5 rounded-lg text-light-muted dark:text-dark-muted hover:text-light-text dark:hover:text-dark-text hover:bg-light-subtle dark:hover:bg-dark-subtle transition-colors"
+                    title="Renommer le paquet"
+                  >
+                    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+                  </button>
+                  <button
+                    type="button"
+                    data-deck-action="export"
+                    data-deck-id="${escapeHtml(deck.id)}"
+                    class="p-1.5 rounded-lg text-light-muted dark:text-dark-muted hover:text-light-text dark:hover:text-dark-text hover:bg-light-subtle dark:hover:bg-dark-subtle transition-colors"
+                    title="Exporter en CSV"
+                  >
+                    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                  </button>
+                  <button
+                    type="button"
+                    data-deck-action="delete"
+                    data-deck-id="${escapeHtml(deck.id)}"
+                    class="p-1.5 rounded-lg text-light-muted dark:text-dark-muted hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 transition-colors"
+                    title="Supprimer le paquet"
+                  >
+                    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path></svg>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Compteurs SRS clairs (Nouvelles / En cours / À réviser / Total) -->
+              <div class="mt-4 grid grid-cols-4 gap-2 text-center">
+                <div class="rounded-xl py-2 px-1 bg-blue-50/70 dark:bg-blue-500/10 border border-blue-100 dark:border-blue-500/20" title="Nouvelles cartes">
+                  <div class="text-base font-bold tabular-nums text-blue-600 dark:text-blue-400">${c.newCount}</div>
+                  <div class="text-[10px] font-medium text-blue-700/80 dark:text-blue-300/80 truncate">Nouv.</div>
+                </div>
+                <div class="rounded-xl py-2 px-1 bg-orange-50/70 dark:bg-orange-500/10 border border-orange-100 dark:border-orange-500/20" title="En cours / À revoir">
+                  <div class="text-base font-bold tabular-nums text-orange-600 dark:text-orange-400">${c.learningCount}</div>
+                  <div class="text-[10px] font-medium text-orange-700/80 dark:text-orange-300/80 truncate">En cours</div>
+                </div>
+                <div class="rounded-xl py-2 px-1 bg-emerald-50/70 dark:bg-emerald-500/10 border border-emerald-100 dark:border-emerald-500/20" title="À réviser aujourd'hui">
+                  <div class="text-base font-bold tabular-nums text-emerald-600 dark:text-emerald-400">${c.reviewDueCount}</div>
+                  <div class="text-[10px] font-medium text-emerald-700/80 dark:text-emerald-300/80 truncate">À réviser</div>
+                </div>
+                <div class="rounded-xl py-2 px-1 bg-light-subtle/80 dark:bg-dark-subtle/80 border border-light-border/70 dark:border-dark-border/70" title="Nombre total de cartes">
+                  <div class="text-base font-bold tabular-nums text-light-text dark:text-dark-text">${c.total}</div>
+                  <div class="text-[10px] font-medium text-light-muted dark:text-dark-muted truncate">Total</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Pied : Boutons Étudier + Gérer les cartes + Ajouter -->
+            <div class="mt-5 pt-4 border-t border-light-border/70 dark:border-dark-border/70 flex items-center gap-2">
+              ${
+                hasDue
+                  ? `
+                <button
+                  type="button"
+                  data-deck-action="study"
+                  data-deck-id="${escapeHtml(deck.id)}"
+                  class="flex-1 py-2.5 px-4 rounded-xl text-sm font-semibold text-white bg-light-accent hover:bg-light-accentHover dark:bg-dark-accent dark:hover:bg-dark-accentHover transition-colors"
+                >
+                  Étudier (${c.totalDue})
+                </button>
+              `
+                  : c.total > 0
+                    ? `
+                <button
+                  type="button"
+                  data-deck-action="free"
+                  data-deck-id="${escapeHtml(deck.id)}"
+                  class="flex-1 py-2.5 px-4 rounded-xl text-sm font-medium bg-emerald-50 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-500/30 hover:opacity-90 transition-opacity"
+                >
+                  À jour · Révision libre
+                </button>
+              `
+                    : `
+                <button
+                  type="button"
+                  data-deck-action="add-card"
+                  data-deck-id="${escapeHtml(deck.id)}"
+                  class="flex-1 py-2.5 px-4 rounded-xl text-sm font-medium bg-light-subtle dark:bg-dark-subtle hover:opacity-90 transition-opacity"
+                >
+                  + Ajouter des cartes
+                </button>
+              `
+              }
+
+              <button
+                type="button"
+                data-deck-action="manage"
+                data-deck-id="${escapeHtml(deck.id)}"
+                class="py-2.5 px-3.5 rounded-xl text-sm font-medium border border-light-border dark:border-dark-border hover:bg-light-subtle dark:hover:bg-dark-subtle transition-colors"
+                title="Gérer les cartes du paquet"
+              >
+                Gérer
+              </button>
+            </div>
+          </article>
+        `;
+      }
+
+      /* -------------------------------------------------------------------
+         VUE 2 : GÉRER LES CARTES D'UN PAQUET
+      ------------------------------------------------------------------- */
+      function renderManageView(container, deck) {
+        const now = Date.now();
+        const endToday = getEndOfLocalDay(now);
+        const q = (appState.manageSearch || '').trim().toLowerCase();
+        const filter = appState.manageFilter || 'all';
+
+        const filteredCards = deck.cards.filter((card) => {
+          const matchesQuery =
+            !q || card.front.toLowerCase().includes(q) || card.back.toLowerCase().includes(q);
+          if (!matchesQuery) return false;
+
+          if (filter === 'new') return card.status === 'new';
+          if (filter === 'learning') return card.status === 'learning' || card.status === 'relearning';
+          if (filter === 'due') return card.status === 'review' && card.due <= endToday;
+          if (filter === 'mastered') return card.status === 'review' && card.due > endToday;
+          return true;
+        });
+
+        const counts = getDeckCounts(deck, now);
+
+        const filterPills = [
+          { id: 'all', label: `Toutes (${deck.cards.length})` },
+          { id: 'new', label: `Nouvelles (${counts.newCount})` },
+          { id: 'learning', label: `En cours (${counts.learningCount})` },
+          { id: 'due', label: `À réviser (${counts.reviewDueCount})` },
+          {
+            id: 'mastered',
+            label: `Planifiées (${deck.cards.length - counts.totalDue})`,
+          },
+        ];
+
+        container.innerHTML = `
+          <div class="animate-fade-slide">
+            <!-- Fil d'Ariane + Retour -->
+            <button id="manage-back-btn" type="button" class="inline-flex items-center gap-1.5 text-sm font-medium text-light-muted dark:text-dark-muted hover:text-light-text dark:hover:text-dark-text mb-4 transition-colors">
+              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg>
+              Retour aux paquets
+            </button>
+
+            <!-- En-tête du paquet -->
+            <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-6 border-b border-light-border dark:border-dark-border">
+              <div>
+                <div class="flex items-center gap-2.5 flex-wrap">
+                  <h1 class="text-2xl sm:text-3xl font-bold tracking-tight">${escapeHtml(deck.name)}</h1>
+                  <button id="manage-rename-deck-btn" type="button" class="p-1.5 rounded-lg text-light-muted hover:text-light-text dark:hover:text-dark-text hover:bg-light-subtle dark:hover:bg-dark-subtle transition-colors" title="Renommer le paquet">
+                    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+                  </button>
+                </div>
+                <p class="text-sm text-light-muted dark:text-dark-muted mt-1">
+                  ${deck.cards.length} carte${deck.cards.length > 1 ? 's' : ''} · ${counts.totalDue} due${counts.totalDue > 1 ? 's' : ''} aujourd’hui
+                </p>
+              </div>
+
+              <div class="flex flex-wrap items-center gap-2">
+                <button id="manage-add-card-btn" type="button" class="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-sm font-semibold text-white bg-light-accent hover:bg-light-accentHover dark:bg-dark-accent dark:hover:bg-dark-accentHover transition-colors">
+                  <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                  Ajouter une carte
+                </button>
+                <button id="manage-study-btn" type="button" class="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-sm font-medium bg-light-card dark:bg-dark-card border border-light-border dark:border-dark-border hover:bg-light-subtle dark:hover:bg-dark-subtle transition-colors">
+                  ${counts.totalDue > 0 ? `Étudier (${counts.totalDue})` : 'Révision libre'}
+                </button>
+                <button id="manage-import-btn" type="button" class="inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-sm font-medium bg-light-card dark:bg-dark-card border border-light-border dark:border-dark-border hover:bg-light-subtle dark:hover:bg-dark-subtle transition-colors">
+                  Importer CSV
+                </button>
+                <button id="manage-export-btn" type="button" class="inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-sm font-medium bg-light-card dark:bg-dark-card border border-light-border dark:border-dark-border hover:bg-light-subtle dark:hover:bg-dark-subtle transition-colors">
+                  Exporter CSV
+                </button>
+                ${
+                  deck.cards.length > 0
+                    ? `
+                  <button id="manage-reset-deck-btn" type="button" class="inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-sm font-medium text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-500/10 border border-amber-200/80 dark:border-amber-500/25 hover:opacity-90 transition-opacity" title="Réinitialiser la progression de toutes les cartes">
+                    Réinitialiser
+                  </button>
+                `
+                    : ''
+                }
+              </div>
+            </div>
+
+            <!-- Barre de recherche et filtres -->
+            <div class="mt-6 flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div class="relative flex-1 max-w-md">
+                <svg class="w-4 h-4 text-light-muted dark:text-dark-muted absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                <input
+                  id="manage-search-input"
+                  type="search"
+                  value="${escapeHtml(appState.manageSearch)}"
+                  placeholder="Rechercher une question ou une réponse..."
+                  class="w-full pl-10 pr-4 py-2.5 rounded-xl bg-light-card dark:bg-dark-card border border-light-border dark:border-dark-border text-sm focus:outline-none focus:ring-2 focus:ring-light-accent/25 dark:focus:ring-dark-accent/50"
+                />
+              </div>
+
+              <div class="flex flex-wrap items-center gap-1.5">
+                ${filterPills
+                  .map(
+                    (p) => `
+                  <button
+                    type="button"
+                    data-manage-filter="${p.id}"
+                    class="px-3 py-1.5 rounded-xl text-xs font-medium transition-colors ${
+                      filter === p.id
+                        ? 'bg-light-accent text-white dark:bg-dark-accent'
+                        : 'bg-light-card dark:bg-dark-card border border-light-border dark:border-dark-border text-light-muted dark:text-dark-muted hover:text-light-text dark:hover:text-dark-text'
+                    }"
+                  >
+                    ${p.label}
+                  </button>
+                `
+                  )
+                  .join('')}
+              </div>
+            </div>
+
+            <!-- Liste des cartes -->
+            <div class="mt-5 space-y-3">
+              ${
+                filteredCards.length === 0
+                  ? `
+                <div class="rounded-2xl border border-dashed border-light-border dark:border-dark-border bg-light-card/50 dark:bg-dark-card/50 p-10 text-center">
+                  <p class="text-sm text-light-muted dark:text-dark-muted">
+                    ${
+                      deck.cards.length === 0
+                        ? 'Ce paquet est encore vide. Ajoutez votre première flashcard ou importez un CSV.'
+                        : 'Aucune carte ne correspond à votre recherche.'
+                    }
+                  </p>
+                </div>
+              `
+                  : filteredCards.map((card) => renderManageCardRowHTML(card, now)).join('')
+              }
+            </div>
+          </div>
+        `;
+
+        // Événements vue gestion
+        document.getElementById('manage-back-btn')?.addEventListener('click', () => {
+          appState.view = 'dashboard';
+          renderApp();
+        });
+        document.getElementById('manage-rename-deck-btn')?.addEventListener('click', () => openDeckFormModal(deck));
+        document.getElementById('manage-add-card-btn')?.addEventListener('click', () => openCardFormModal(deck.id));
+        document.getElementById('manage-study-btn')?.addEventListener('click', () => {
+          startStudySession(deck.id, counts.totalDue > 0 ? 'srs' : 'free');
+        });
+        document.getElementById('manage-import-btn')?.addEventListener('click', () => openCsvImportModal(deck.id));
+        document.getElementById('manage-export-btn')?.addEventListener('click', () => exportDeckToCSV(deck.id));
+
+        document.getElementById('manage-reset-deck-btn')?.addEventListener('click', () => {
+          openConfirmModal({
+            title: 'Réinitialiser tout le paquet ?',
+            message: `Toutes les cartes de « ${deck.name} » redeviendront des nouvelles cartes. Leur contenu ne sera pas modifié.`,
+            confirmLabel: 'Réinitialiser',
+            danger: true,
+            onConfirm: () => {
+              deck.cards.forEach(resetCardProgress);
+              saveData();
+              showToast('Progression du paquet réinitialisée.', 'success');
+              renderApp();
+            },
+          });
+        });
+
+        const searchInput = document.getElementById('manage-search-input');
+        searchInput?.addEventListener('input', (e) => {
+          appState.manageSearch = e.target.value;
+          const pos = e.target.selectionStart;
+          renderManageView(container, deck);
+          const nextInput = document.getElementById('manage-search-input');
+          if (nextInput) {
+            nextInput.focus();
+            nextInput.setSelectionRange(pos, pos);
+          }
+        });
+
+        container.querySelectorAll('[data-manage-filter]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            appState.manageFilter = btn.dataset.manageFilter;
+            renderManageView(container, deck);
+          });
+        });
+
+        // Actions sur chaque carte (éditer, réinitialiser, supprimer)
+        container.querySelectorAll('[data-card-action]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const action = btn.dataset.cardAction;
+            const cardId = btn.dataset.cardId;
+            const card = deck.cards.find((c) => c.id === cardId);
+            if (!card) return;
+
+            if (action === 'edit') {
+              openCardFormModal(deck.id, card);
+            } else if (action === 'reset') {
+              openConfirmModal({
+                title: 'Réinitialiser cette carte ?',
+                message: 'Son historique de répétition espacée sera remis à zéro (statut Nouvelle).',
+                confirmLabel: 'Réinitialiser',
+                onConfirm: () => {
+                  resetCardProgress(card);
+                  saveData();
+                  showToast('Progression de la carte réinitialisée.', 'info');
+                  renderApp();
+                },
+              });
+            } else if (action === 'delete') {
+              openConfirmModal({
+                title: 'Supprimer cette carte ?',
+                message: 'Cette flashcard sera définitivement supprimée du paquet.',
+                confirmLabel: 'Supprimer',
+                danger: true,
+                onConfirm: () => {
+                  deck.cards = deck.cards.filter((c) => c.id !== cardId);
+                  saveData();
+                  showToast('Carte supprimée.', 'info');
+                  renderApp();
+                },
+              });
+            }
+          });
+        });
+      }
+
+      /** HTML d'une ligne de carte dans la vue "Gérer les cartes" */
+      function renderManageCardRowHTML(card, now) {
+        const badge = formatNextDueBadge(card, now);
+        const badgeStyles = {
+          blue: 'bg-blue-50 text-blue-700 border-blue-200/80 dark:bg-blue-500/15 dark:text-blue-300 dark:border-blue-500/30',
+          orange: 'bg-orange-50 text-orange-700 border-orange-200/80 dark:bg-orange-500/15 dark:text-orange-300 dark:border-orange-500/30',
+          green: 'bg-emerald-50 text-emerald-700 border-emerald-200/80 dark:bg-emerald-500/15 dark:text-emerald-300 dark:border-emerald-500/30',
+          neutral: 'bg-light-subtle text-light-muted border-light-border dark:bg-dark-subtle dark:text-dark-muted dark:border-dark-border',
+        };
+
+        return `
+          <div class="rounded-2xl bg-light-card dark:bg-dark-card border border-light-border dark:border-dark-border p-4 sm:p-5 shadow-soft transition-colors">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <div class="text-[11px] font-semibold uppercase tracking-wider text-light-muted dark:text-dark-muted mb-1">Recto</div>
+                <div class="text-sm leading-relaxed break-words">${renderCardContent(card.front)}</div>
+              </div>
+              <div class="md:border-l md:border-light-border/80 md:dark:border-dark-border/80 md:pl-4">
+                <div class="text-[11px] font-semibold uppercase tracking-wider text-light-muted dark:text-dark-muted mb-1">Verso</div>
+                <div class="text-sm leading-relaxed text-light-muted dark:text-dark-muted break-words">${renderCardContent(card.back)}</div>
+              </div>
+            </div>
+
+            <div class="mt-4 pt-3 border-t border-light-border/60 dark:border-dark-border/60 flex flex-wrap items-center justify-between gap-2">
+              <div class="flex flex-wrap items-center gap-2 text-xs">
+                <span class="px-2.5 py-1 rounded-full font-medium border ${badgeStyles[badge.tone]}">
+                  ${escapeHtml(badge.text)}
+                </span>
+                ${
+                  card.status !== 'new'
+                    ? `<span class="text-light-muted dark:text-dark-muted">Facilité : ${Math.round((card.ease || 2.5) * 100)}%</span>`
+                    : ''
+                }
+              </div>
+
+              <div class="flex items-center gap-1">
+                <button type="button" data-card-action="edit" data-card-id="${escapeHtml(card.id)}" class="px-2.5 py-1.5 rounded-lg text-xs font-medium hover:bg-light-subtle dark:hover:bg-dark-subtle transition-colors">
+                  Éditer
+                </button>
+                ${
+                  card.status !== 'new'
+                    ? `
+                  <button type="button" data-card-action="reset" data-card-id="${escapeHtml(card.id)}" class="px-2.5 py-1.5 rounded-lg text-xs font-medium text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-500/10 transition-colors">
+                    Réinitialiser
+                  </button>
+                `
+                    : ''
+                }
+                <button type="button" data-card-action="delete" data-card-id="${escapeHtml(card.id)}" class="px-2.5 py-1.5 rounded-lg text-xs font-medium text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 transition-colors">
+                  Supprimer
+                </button>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+
+      /* -------------------------------------------------------------------
+         VUE 3 : SESSION DE RÉVISION (SRS & RÉVISION LIBRE)
+      ------------------------------------------------------------------- */
+      function renderStudyView(container, deck) {
+        const session = appState.study;
+        const now = Date.now();
+        const counts = getDeckCounts(deck, now);
+
+        // Calcul du pourcentage de progression
+        let progressPct = 0;
+        if (session.completed) {
+          progressPct = 100;
+        } else if (session.mode === 'free') {
+          const done = Math.max(0, session.initialTotal - session.freeQueue.length);
+          progressPct = Math.min(100, Math.round((done / Math.max(1, session.initialTotal)) * 100));
+        } else {
+          const remaining = counts.totalDue;
+          const totalEstimate = Math.max(session.initialTotal, remaining + session.reviewedCount);
+          const done = Math.max(0, totalEstimate - remaining);
+          progressPct = Math.min(99, Math.round((done / Math.max(1, totalEstimate)) * 100));
+        }
+
+        // En-tête commun de session
+        const topBarHtml = `
+          <div class="max-w-3xl mx-auto mb-6">
+            <div class="flex items-center justify-between gap-3 mb-3">
+              <button id="study-exit-btn" type="button" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-medium text-light-muted dark:text-dark-muted hover:text-light-text dark:hover:text-dark-text hover:bg-light-subtle dark:hover:bg-dark-subtle transition-colors">
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg>
+                Quitter
+              </button>
+
+              <div class="text-center truncate px-2">
+                <div class="text-sm font-semibold truncate">${escapeHtml(deck.name)}</div>
+                ${
+                  session.mode === 'free'
+                    ? '<div class="text-[11px] font-medium text-violet-600 dark:text-dark-accentSoft">Mode Révision Libre</div>'
+                    : ''
+                }
+              </div>
+
+              <!-- Compteurs de session -->
+              ${
+                session.mode === 'srs'
+                  ? `
+                <div class="flex items-center gap-2 text-xs font-semibold tabular-nums">
+                  <span class="px-2 py-0.5 rounded-md bg-blue-50 text-blue-600 dark:bg-blue-500/15 dark:text-blue-400" title="Nouvelles">${counts.newCount}</span>
+                  <span class="px-2 py-0.5 rounded-md bg-orange-50 text-orange-600 dark:bg-orange-500/15 dark:text-orange-400" title="En cours / À revoir">${counts.learningCount}</span>
+                  <span class="px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400" title="À réviser">${counts.reviewDueCount}</span>
+                </div>
+              `
+                  : `
+                <div class="text-xs font-semibold text-light-muted dark:text-dark-muted tabular-nums">
+                  ${session.freeQueue.length} restante${session.freeQueue.length > 1 ? 's' : ''}
+                </div>
+              `
+              }
+            </div>
+
+            <!-- Barre de progression animée -->
+            <div class="w-full h-2 rounded-full bg-light-subtle dark:bg-dark-subtle overflow-hidden">
+              <div
+                class="h-full rounded-full bg-light-accent dark:bg-dark-accent transition-all duration-500 ease-out"
+                style="width: ${progressPct}%"
+              ></div>
+            </div>
+          </div>
+        `;
+
+        // CAS A : SESSION TERMINÉE
+        if (session.completed) {
+          const successRate =
+            session.reviewedCount > 0
+              ? Math.round((session.successCount / session.reviewedCount) * 100)
+              : 100;
+
+          container.innerHTML = `
+            <div class="animate-fade-slide">
+              ${topBarHtml}
+              <div class="max-w-xl mx-auto mt-8 rounded-3xl bg-light-card dark:bg-dark-card border border-light-border dark:border-dark-border p-8 sm:p-10 text-center shadow-card dark:shadow-card-dark">
+                <div class="w-16 h-16 mx-auto rounded-2xl bg-emerald-50 dark:bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mb-5">
+                  <svg class="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                    <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                  </svg>
+                </div>
+
+                <h2 class="text-2xl font-bold tracking-tight">
+                  ${session.mode === 'free' ? 'Révision libre terminée !' : 'Bravo, session terminée !'}
+                </h2>
+                <p class="text-sm text-light-muted dark:text-dark-muted mt-2">
+                  ${
+                    session.reviewedCount > 0
+                      ? 'Vous avez terminé toutes les cartes prévues pour le moment.'
+                      : 'Aucune carte n’est due pour le moment dans ce paquet.'
+                  }
+                </p>
+
+                <!-- Statistiques de la session -->
+                <div class="mt-6 grid grid-cols-2 gap-3">
+                  <div class="rounded-2xl p-4 bg-light-bg dark:bg-dark-bg border border-light-border dark:border-dark-border">
+                    <div class="text-2xl font-bold tabular-nums">${session.reviewedCount}</div>
+                    <div class="text-xs text-light-muted dark:text-dark-muted mt-0.5">Réponse${session.reviewedCount > 1 ? 's' : ''} évaluée${session.reviewedCount > 1 ? 's' : ''}</div>
+                  </div>
+                  <div class="rounded-2xl p-4 bg-light-bg dark:bg-dark-bg border border-light-border dark:border-dark-border">
+                    <div class="text-2xl font-bold tabular-nums text-emerald-600 dark:text-emerald-400">${successRate}%</div>
+                    <div class="text-xs text-light-muted dark:text-dark-muted mt-0.5">Taux de réussite</div>
+                  </div>
+                </div>
+
+                <div class="mt-7 flex flex-col sm:flex-row items-center justify-center gap-3">
+                  <button id="finish-back-dash-btn" type="button" class="w-full sm:w-auto px-5 py-3 rounded-xl text-sm font-semibold text-white bg-light-accent hover:bg-light-accentHover dark:bg-dark-accent dark:hover:bg-dark-accentHover transition-colors">
+                    Retour aux paquets
+                  </button>
+                  <button id="finish-free-mode-btn" type="button" class="w-full sm:w-auto px-5 py-3 rounded-xl text-sm font-medium bg-light-subtle dark:bg-dark-subtle hover:opacity-90 transition-opacity">
+                    Mode Révision Libre
+                  </button>
+                </div>
+              </div>
+            </div>
+          `;
+
+          document.getElementById('study-exit-btn')?.addEventListener('click', exitStudySession);
+          document.getElementById('finish-back-dash-btn')?.addEventListener('click', exitStudySession);
+          document.getElementById('finish-free-mode-btn')?.addEventListener('click', () => {
+            startStudySession(deck.id, 'free');
+          });
+          return;
+        }
+
+        // CAS B : CARTES EN ATTENTE DE QUELQUES MINUTES (DÉCOMPTE + RÉVISER SANS ATTENDRE)
+        if (session.waitingCardId && session.waitingUntil) {
+          container.innerHTML = `
+            <div class="animate-fade-slide">
+              ${topBarHtml}
+              <div class="max-w-xl mx-auto mt-8 rounded-3xl bg-light-card dark:bg-dark-card border border-light-border dark:border-dark-border p-8 sm:p-10 text-center shadow-card dark:shadow-card-dark">
+                <div class="w-14 h-14 mx-auto rounded-2xl bg-orange-50 dark:bg-orange-500/15 text-orange-600 dark:text-orange-400 flex items-center justify-center mb-4">
+                  <svg class="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <polyline points="12 6 12 12 16 14"></polyline>
+                  </svg>
+                </div>
+
+                <h2 class="text-xl font-bold tracking-tight">Prochaine carte bientôt prête</h2>
+                <p class="text-sm text-light-muted dark:text-dark-muted mt-1.5">
+                  Il reste <span class="font-semibold text-light-text dark:text-dark-text">${counts.learningCount}</span> carte${counts.learningCount > 1 ? 's' : ''} en cours d’apprentissage à revoir dans quelques instants.
+                </p>
+
+                <div id="waiting-countdown" class="mt-6 text-4xl font-bold font-mono tracking-tight text-light-text dark:text-dark-accentSoft tabular-nums">
+                  --:--
+                </div>
+
+                <div class="mt-7 flex flex-col sm:flex-row items-center justify-center gap-3">
+                  <button id="waiting-force-btn" type="button" class="w-full sm:w-auto px-5 py-3 rounded-xl text-sm font-semibold text-white bg-light-accent hover:bg-light-accentHover dark:bg-dark-accent dark:hover:bg-dark-accentHover transition-colors">
+                    Réviser sans attendre
+                  </button>
+                  <button id="waiting-exit-btn" type="button" class="w-full sm:w-auto px-5 py-3 rounded-xl text-sm font-medium border border-light-border dark:border-dark-border hover:bg-light-subtle dark:hover:bg-dark-subtle transition-colors">
+                    Revenir plus tard
+                  </button>
+                </div>
+              </div>
+            </div>
+          `;
+
+          document.getElementById('study-exit-btn')?.addEventListener('click', exitStudySession);
+          document.getElementById('waiting-exit-btn')?.addEventListener('click', exitStudySession);
+          document.getElementById('waiting-force-btn')?.addEventListener('click', () => {
+            pickNextSrsCard(true);
+            renderApp();
+          });
+
+          // Lance le décompte en direct
+          const updateCountdown = () => {
+            const diff = session.waitingUntil - Date.now();
+            if (diff <= 0) {
+              clearWaitingTimer();
+              pickNextSrsCard(false);
+              renderApp();
+              return;
+            }
+            const totalSec = Math.ceil(diff / 1000);
+            const mins = String(Math.floor(totalSec / 60)).padStart(2, '0');
+            const secs = String(totalSec % 60).padStart(2, '0');
+            const el = document.getElementById('waiting-countdown');
+            if (el) el.textContent = `${mins}:${secs}`;
+          };
+          updateCountdown();
+          appState.waitingTimerId = setInterval(updateCountdown, 500);
+          return;
+        }
+
+        // CAS C : CARTE ACTIVE À ÉTUDIER
+        const card = deck.cards.find((c) => c.id === session.currentCardId);
+        if (!card) {
+          pickNextSrsCard(false);
+          renderApp();
+          return;
+        }
+
+        const statusBadgeMap = {
+          new: { label: 'Nouvelle', cls: 'bg-blue-50 text-blue-600 dark:bg-blue-500/15 dark:text-blue-400' },
+          learning: { label: 'En apprentissage', cls: 'bg-orange-50 text-orange-600 dark:bg-orange-500/15 dark:text-orange-400' },
+          relearning: { label: 'À réapprendre', cls: 'bg-rose-50 text-rose-600 dark:bg-rose-500/15 dark:text-rose-400' },
+          review: { label: 'Révision', cls: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400' },
+        };
+        const badge = statusBadgeMap[card.status] || statusBadgeMap.new;
+
+        container.innerHTML = `
+          <div class="animate-fade-slide">
+            ${topBarHtml}
+
+            <!-- Carte Flashcard 3D -->
+            <div class="max-w-2xl mx-auto perspective-1200">
+              <div
+                id="study-flip-inner"
+                class="flip-card-inner cursor-pointer select-text ${session.isFlipped ? 'is-flipped' : ''}"
+                title="Cliquez pour retourner la carte"
+              >
+                <!-- FACE RECTO (QUESTION) -->
+                <div class="flip-card-face min-h-[290px] sm:min-h-[340px] rounded-3xl bg-light-card dark:bg-dark-card border border-light-border dark:border-dark-border p-6 sm:p-10 shadow-card dark:shadow-card-dark flex flex-col justify-between">
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="text-[11px] font-semibold uppercase tracking-widest text-light-muted dark:text-dark-muted">Question</span>
+                    <span class="text-[11px] font-semibold px-2.5 py-0.5 rounded-full ${badge.cls}">
+                      ${session.mode === 'free' ? 'Révision libre' : badge.label}
+                    </span>
+                  </div>
+
+                  <div class="my-auto py-8 text-center text-lg sm:text-2xl font-medium leading-relaxed break-words">
+                    ${renderCardContent(card.front)}
+                  </div>
+
+                  <div class="text-center text-xs text-light-muted/80 dark:text-dark-muted/80">
+                    Cliquez sur la carte ou appuyez sur <kbd class="px-1.5 py-0.5 rounded bg-light-subtle dark:bg-dark-subtle font-mono text-[11px]">Espace</kbd>
+                  </div>
+                </div>
+
+                <!-- FACE VERSO (RÉPONSE) -->
+                <div class="flip-card-face flip-card-back min-h-[290px] sm:min-h-[340px] rounded-3xl bg-light-card dark:bg-dark-card border border-light-border dark:border-dark-accent/35 p-6 sm:p-10 shadow-card dark:shadow-card-dark flex flex-col justify-between">
+                  <div>
+                    <div class="flex items-center justify-between gap-2 pb-3 mb-4 border-b border-light-border/70 dark:border-dark-border/70">
+                      <span class="text-[11px] font-semibold uppercase tracking-widest text-light-muted dark:text-dark-muted">Réponse</span>
+                      <span class="text-xs text-light-muted dark:text-dark-muted truncate max-w-[70%]">${escapeHtml(card.front)}</span>
+                    </div>
+                  </div>
+
+                  <div class="my-auto py-4 text-center text-base sm:text-xl leading-relaxed break-words">
+                    ${renderCardContent(card.back)}
+                  </div>
+
+                  <div class="pt-3 text-center text-xs text-light-muted/75 dark:text-dark-muted/75">
+                    Évaluez votre facilité à retrouver la réponse ci-dessous
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Zone des boutons d'action (Afficher la réponse OU 4 boutons SRS) -->
+            <div id="study-controls-wrap" class="max-w-2xl mx-auto mt-6"></div>
+          </div>
+        `;
+
+        document.getElementById('study-exit-btn')?.addEventListener('click', exitStudySession);
+
+        // Retournement au clic sur la carte (en évitant le clic lors d'une sélection de texte)
+        document.getElementById('study-flip-inner')?.addEventListener('click', () => {
+          const selection = window.getSelection();
+          if (selection && selection.toString().length > 0) return;
+          flipCurrentCard();
+        });
+
+        renderStudyControlsInto(document.getElementById('study-controls-wrap'));
+      }
+
+      /** Rend les boutons sous la flashcard (Afficher la réponse ou les 4 boutons SRS dynamiques) */
+      function renderStudyControlsInto(wrapper) {
+        if (!wrapper || !appState.study) return;
+        const session = appState.study;
+        const deck = getDeckById(session.deckId);
+        const card = deck?.cards.find((c) => c.id === session.currentCardId);
+        if (!card) return;
+
+        if (!session.isFlipped) {
+          wrapper.innerHTML = `
+            <button
+              id="show-answer-btn"
+              type="button"
+              class="w-full py-4 px-6 rounded-2xl text-base font-semibold text-white bg-light-accent hover:bg-light-accentHover dark:bg-dark-accent dark:hover:bg-dark-accentHover shadow-soft transition-all active:scale-[0.99]"
+            >
+              Afficher la réponse
+            </button>
+            <p class="mt-3 text-center text-xs text-light-muted dark:text-dark-muted hidden sm:block">
+              Raccourcis : <kbd class="px-1.5 py-0.5 rounded bg-light-subtle dark:bg-dark-subtle font-mono">Espace</kbd> retourner · <kbd class="px-1.5 py-0.5 rounded bg-light-subtle dark:bg-dark-subtle font-mono">1</kbd>–<kbd class="px-1.5 py-0.5 rounded bg-light-subtle dark:bg-dark-subtle font-mono">4</kbd> évaluer
+            </p>
+          `;
+          document.getElementById('show-answer-btn')?.addEventListener('click', flipCurrentCard);
+          return;
+        }
+
+        // Mode Révision Libre : 2 boutons clairs (ou 4 boutons sans modifier le SRS)
+        if (session.mode === 'free') {
+          wrapper.innerHTML = `
+            <div class="grid grid-cols-2 gap-3 animate-fade-slide">
+              <button type="button" data-rate="again" class="py-3.5 px-4 rounded-2xl border border-rose-200 dark:border-rose-500/35 bg-rose-50/80 dark:bg-rose-500/15 text-rose-700 dark:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-500/25 transition-colors flex flex-col items-center">
+                <span class="text-sm font-semibold">À revoir</span>
+                <span class="text-xs opacity-75 mt-0.5">Remettre dans la file [1]</span>
+              </button>
+              <button type="button" data-rate="good" class="py-3.5 px-4 rounded-2xl border border-emerald-200 dark:border-emerald-500/35 bg-emerald-50/80 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-500/25 transition-colors flex flex-col items-center">
+                <span class="text-sm font-semibold">Acquis</span>
+                <span class="text-xs opacity-75 mt-0.5">Carte suivante [3]</span>
+              </button>
+            </div>
+          `;
+        } else {
+          // Mode SRS : calcul dynamique des 4 délais exacts
+          const now = Date.now();
+          const pAgain = simulateSRS(card, 'again', now);
+          const pHard = simulateSRS(card, 'hard', now);
+          const pGood = simulateSRS(card, 'good', now);
+          const pEasy = simulateSRS(card, 'easy', now);
+
+          wrapper.innerHTML = `
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3 animate-fade-slide">
+              <!-- 1 : À revoir (Rouge) -->
+              <button
+                type="button"
+                data-rate="again"
+                class="group relative py-3.5 px-3 rounded-2xl border border-rose-200/90 dark:border-rose-500/35 bg-rose-50/80 dark:bg-rose-500/12 hover:bg-rose-100 dark:hover:bg-rose-500/22 text-rose-700 dark:text-rose-300 transition-all active:scale-[0.98] flex flex-col items-center"
+              >
+                <span class="text-[11px] font-semibold opacity-80 mb-0.5">${escapeHtml(pAgain.label)}</span>
+                <span class="text-sm font-bold">À revoir</span>
+                <span class="hidden sm:inline-block mt-1 text-[10px] font-mono opacity-60">Touche 1</span>
+              </button>
+
+              <!-- 2 : Difficile (Orange) -->
+              <button
+                type="button"
+                data-rate="hard"
+                class="group relative py-3.5 px-3 rounded-2xl border border-orange-200/90 dark:border-orange-500/35 bg-orange-50/80 dark:bg-orange-500/12 hover:bg-orange-100 dark:hover:bg-orange-500/22 text-orange-700 dark:text-orange-300 transition-all active:scale-[0.98] flex flex-col items-center"
+              >
+                <span class="text-[11px] font-semibold opacity-80 mb-0.5">${escapeHtml(pHard.label)}</span>
+                <span class="text-sm font-bold">Difficile</span>
+                <span class="hidden sm:inline-block mt-1 text-[10px] font-mono opacity-60">Touche 2</span>
+              </button>
+
+              <!-- 3 : Bien (Vert) -->
+              <button
+                type="button"
+                data-rate="good"
+                class="group relative py-3.5 px-3 rounded-2xl border border-emerald-200/90 dark:border-emerald-500/35 bg-emerald-50/80 dark:bg-emerald-500/12 hover:bg-emerald-100 dark:hover:bg-emerald-500/22 text-emerald-700 dark:text-emerald-300 transition-all active:scale-[0.98] flex flex-col items-center"
+              >
+                <span class="text-[11px] font-semibold opacity-80 mb-0.5">${escapeHtml(pGood.label)}</span>
+                <span class="text-sm font-bold">Bien</span>
+                <span class="hidden sm:inline-block mt-1 text-[10px] font-mono opacity-60">Touche 3</span>
+              </button>
+
+              <!-- 4 : Facile (Bleu / Violet) -->
+              <button
+                type="button"
+                data-rate="easy"
+                class="group relative py-3.5 px-3 rounded-2xl border border-indigo-200/90 dark:border-violet-500/40 bg-indigo-50/80 dark:bg-violet-500/15 hover:bg-indigo-100 dark:hover:bg-violet-500/25 text-indigo-700 dark:text-violet-300 transition-all active:scale-[0.98] flex flex-col items-center"
+              >
+                <span class="text-[11px] font-semibold opacity-80 mb-0.5">${escapeHtml(pEasy.label)}</span>
+                <span class="text-sm font-bold">Facile</span>
+                <span class="hidden sm:inline-block mt-1 text-[10px] font-mono opacity-60">Touche 4</span>
+              </button>
+            </div>
+
+            <p class="mt-3 text-center text-xs text-light-muted dark:text-dark-muted hidden sm:block">
+              Raccourcis : <kbd class="px-1.5 py-0.5 rounded bg-light-subtle dark:bg-dark-subtle font-mono">Espace</kbd> retourner · <kbd class="px-1.5 py-0.5 rounded bg-light-subtle dark:bg-dark-subtle font-mono">1</kbd> À revoir · <kbd class="px-1.5 py-0.5 rounded bg-light-subtle dark:bg-dark-subtle font-mono">2</kbd> Difficile · <kbd class="px-1.5 py-0.5 rounded bg-light-subtle dark:bg-dark-subtle font-mono">3</kbd> Bien · <kbd class="px-1.5 py-0.5 rounded bg-light-subtle dark:bg-dark-subtle font-mono">4</kbd> Facile
+            </p>
+          `;
+        }
+
+        wrapper.querySelectorAll('[data-rate]').forEach((btn) => {
+          btn.addEventListener('click', () => rateCurrentCard(btn.dataset.rate));
+        });
+      }
+
+      /** Quitte la session d'étude et revient au tableau de bord */
+      function exitStudySession() {
+        clearWaitingTimer();
+        appState.study = null;
+        appState.view = 'dashboard';
+        renderApp();
+      }
+
+      /* ===================================================================
+         11. THÈME CLAIR / SOMBRE & RACCOURCIS CLAVIER GLOBAUX
+      =================================================================== */
+
+      function toggleTheme() {
+        const html = document.documentElement;
+        const isDark = html.classList.toggle('dark');
+        try {
+          localStorage.setItem(THEME_KEY, isDark ? 'dark' : 'light');
+        } catch (e) {
+          console.warn('Impossible de sauvegarder le thème', e);
+        }
+      }
+
+      function setupGlobalListeners() {
+        // Logo -> retour accueil
+        document.getElementById('brand-home-btn')?.addEventListener('click', () => {
+          clearWaitingTimer();
+          appState.study = null;
+          appState.view = 'dashboard';
+          renderApp();
+        });
+
+        // Bouton Import CSV dans l'en-tête
+        document.getElementById('header-import-btn')?.addEventListener('click', () => {
+          openCsvImportModal(appState.view === 'manage' ? appState.activeDeckId : null);
+        });
+
+        // Bascule de thème
+        document.getElementById('theme-toggle-btn')?.addEventListener('click', toggleTheme);
+
+        // Fermeture modale par clic extérieur ou bouton [data-close-modal]
+        const backdrop = document.getElementById('modal-backdrop');
+        backdrop?.addEventListener('click', (e) => {
+          if (e.target === backdrop || e.target.closest('[data-close-modal]')) {
+            closeModal();
+          }
+        });
+
+        // Raccourcis clavier globaux (mode révision + Échap pour les modales)
+        document.addEventListener('keydown', (e) => {
+          const modalOpen = !document.getElementById('modal-backdrop').classList.contains('hidden');
+
+          if (e.key === 'Escape') {
+            if (modalOpen) {
+              closeModal();
+              return;
+            }
+          }
+
+          if (modalOpen) return;
+
+          // Ignore les raccourcis si l'utilisateur tape dans un champ de saisie
+          const tag = (e.target.tagName || '').toLowerCase();
+          if (tag === 'input' || tag === 'textarea' || tag === 'select' || e.target.isContentEditable) {
+            return;
+          }
+
+          // Raccourcis en mode révision
+          if (appState.view === 'study' && appState.study && !appState.study.completed && !appState.study.waitingCardId) {
+            if (e.code === 'Space') {
+              e.preventDefault();
+              flipCurrentCard();
+              return;
+            }
+
+            if (appState.study.isFlipped) {
+              if (e.key === '1') {
+                e.preventDefault();
+                rateCurrentCard('again');
+              } else if (e.key === '2' && appState.study.mode === 'srs') {
+                e.preventDefault();
+                rateCurrentCard('hard');
+              } else if (e.key === '3') {
+                e.preventDefault();
+                rateCurrentCard('good');
+              } else if (e.key === '4' && appState.study.mode === 'srs') {
+                e.preventDefault();
+                rateCurrentCard('easy');
+              }
+            }
+          }
+        });
+      }
+
+      /* ===================================================================
+         12. INITIALISATION AU CHARGEMENT
+      =================================================================== */
+      function init() {
+        appState.data = loadData();
+        setupGlobalListeners();
+        renderApp();
+      }
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+      } else {
+        init();
+      }
+    })();
+  </script>
+</body>
+</html>
